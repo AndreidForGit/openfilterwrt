@@ -161,3 +161,34 @@ func TestStaticDHCPServiceDeleteMissingHost(testingInstance *testing.T) {
 		testingInstance.Errorf("expected StaticDHCPHostNotFoundError, received %v", deleteError)
 	}
 }
+
+func TestStaticDHCPServiceCreatesHostFromCompactMAC(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show dhcp"] = CommandResult{
+		StandardOutput: "",
+		ExitStatus:     0,
+	}
+	fakeExecutor.commandResults["uci add dhcp host"] = CommandResult{
+		StandardOutput: "cfg0a1b2c\n",
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	staticDHCPService := NewStaticDHCPService(uciClient, "dnsmasq")
+
+	newHost := StaticDHCPHost{
+		Name:       "laptop",
+		MACAddress: "aabbccddeeff",
+		IPAddress:  "192.168.1.100",
+	}
+
+	createError := staticDHCPService.CreateStaticDHCPHost(newHost)
+	if createError != nil {
+		testingInstance.Fatalf("unexpected create error: %v", createError)
+	}
+
+	expectedCommand := "uci set dhcp.cfg0a1b2c.mac='AA:BB:CC:DD:EE:FF'"
+	if fakeExecutor.containsCommand(expectedCommand) == false {
+		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedCommand, fakeExecutor.executedCommands)
+	}
+}

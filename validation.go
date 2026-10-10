@@ -17,16 +17,26 @@ func (validationError *ValidationError) Error() string {
 	return validationError.Message
 }
 
-// ValidateMACAddress confirms that the provided text is a well formed MAC address.
-func ValidateMACAddress(macAddress string) error {
-	_, parseError := net.ParseMAC(macAddress)
+// NormalizeMACAddress parses a MAC address and returns it in the canonical upper
+// case, colon separated form (AA:BB:CC:DD:EE:FF). Separators are optional on
+// input, so AABBCCDDEEFF is accepted as well.
+func NormalizeMACAddress(macAddress string) (string, error) {
+	parsedHardwareAddress, parseError := net.ParseMAC(macAddress)
 	if parseError != nil {
 		errorMessage := fmt.Sprintf("invalid MAC address %q", macAddress)
 		validationError := &ValidationError{Message: errorMessage}
-		return validationError
+		return "", validationError
 	}
 
-	return nil
+	colonSeparatedMACAddress := parsedHardwareAddress.String()
+	canonicalMACAddress := strings.ToUpper(colonSeparatedMACAddress)
+	return canonicalMACAddress, nil
+}
+
+// ValidateMACAddress confirms that the provided text is a well formed MAC address.
+func ValidateMACAddress(macAddress string) error {
+	_, validationError := NormalizeMACAddress(macAddress)
+	return validationError
 }
 
 // ValidateIPv4Address confirms that the provided text is a well formed IPv4 address.

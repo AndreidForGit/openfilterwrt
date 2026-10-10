@@ -7,6 +7,8 @@ func TestValidateMACAddressAcceptsValidAddresses(testingInstance *testing.T) {
 		"AA:BB:CC:DD:EE:FF",
 		"aa:bb:cc:dd:ee:ff",
 		"AA-BB-CC-DD-EE-FF",
+		"AABBCCDDEEFF",
+		"aabbccddeeff",
 	}
 
 	for addressIndex := 0; addressIndex < len(validMACAddresses); addressIndex++ {
@@ -61,5 +63,28 @@ func TestMacAddressesEqual(testingInstance *testing.T) {
 	differingResult := macAddressesEqual("AA:BB:CC:DD:EE:FF", "AA:BB:CC:DD:EE:00")
 	if differingResult {
 		testingInstance.Errorf("expected different MAC addresses to be unequal")
+	}
+}
+
+func TestNormalizeMACAddress(testingInstance *testing.T) {
+	compactValue, compactError := NormalizeMACAddress("aabbccddeeff")
+	if compactError != nil {
+		testingInstance.Fatalf("unexpected normalize error: %v", compactError)
+	}
+	if compactValue != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected AA:BB:CC:DD:EE:FF, received %q", compactValue)
+	}
+
+	separatedValue, separatedError := NormalizeMACAddress("aa-bb-cc-dd-ee-ff")
+	if separatedError != nil {
+		testingInstance.Fatalf("unexpected normalize error: %v", separatedError)
+	}
+	if separatedValue != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected AA:BB:CC:DD:EE:FF, received %q", separatedValue)
+	}
+
+	_, invalidError := NormalizeMACAddress("not-a-mac-address")
+	if invalidError == nil {
+		testingInstance.Errorf("expected an invalid MAC address to fail normalization")
 	}
 }

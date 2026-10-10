@@ -256,7 +256,8 @@
           </div>
           <div>
             <label class="app-label" for="dhcp-mac-input">MAC address</label>
-            <input id="dhcp-mac-input" class="app-input" type="text" required autocomplete="off" spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF">
+            <input id="dhcp-mac-input" class="app-input" type="text" required maxlength="17" autocomplete="off" spellcheck="false" placeholder="AABBCCDDEEFF">
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Colons are optional; they are added automatically.</p>
           </div>
           <div>
             <label class="app-label" for="dhcp-ip-input">IP address</label>
@@ -283,7 +284,8 @@
         <form id="whitelist-form" class="space-y-4">
           <div>
             <label class="app-label" for="whitelist-mac-input">MAC address</label>
-            <input id="whitelist-mac-input" class="app-input" type="text" required autocomplete="off" spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF">
+            <input id="whitelist-mac-input" class="app-input" type="text" required maxlength="17" autocomplete="off" spellcheck="false" placeholder="AABBCCDDEEFF">
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Colons are optional; they are added automatically.</p>
           </div>
           <p id="whitelist-form-error" class="hidden text-sm text-red-600 dark:text-red-400"></p>
           <div class="flex justify-end gap-2">

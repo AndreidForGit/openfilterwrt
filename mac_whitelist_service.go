@@ -90,9 +90,9 @@ func (service *MACWhitelistService) ListMACWhitelistEntries() ([]MACWhitelistEnt
 // AddMACWhitelistEntry allows a MAC address on every target access point.
 // This also switches the wireless filter into allow (whitelist) mode.
 func (service *MACWhitelistService) AddMACWhitelistEntry(macAddress string) error {
-	validationError := ValidateMACAddress(macAddress)
-	if validationError != nil {
-		return validationError
+	canonicalMACAddress, normalizeError := NormalizeMACAddress(macAddress)
+	if normalizeError != nil {
+		return normalizeError
 	}
 
 	service.mutationLock.Lock()
@@ -117,7 +117,7 @@ func (service *MACWhitelistService) AddMACWhitelistEntry(macAddress string) erro
 			return setFilterModeError
 		}
 
-		addListValueError := service.uciClient.AddListValue(wirelessConfigurationName, sectionIdentifier, wirelessMACListOptionName, macAddress)
+		addListValueError := service.uciClient.AddListValue(wirelessConfigurationName, sectionIdentifier, wirelessMACListOptionName, canonicalMACAddress)
 		if addListValueError != nil {
 			return addListValueError
 		}

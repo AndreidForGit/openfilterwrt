@@ -5,7 +5,8 @@ const API_BASE_URL_STORAGE_KEY = "openwrtController.apiBaseUrl";
 const THEME_STORAGE_KEY = "openwrtController.theme";
 const HEALTH_POLL_INTERVAL_MILLISECONDS = 30000;
 const TOAST_DISPLAY_DURATION_MILLISECONDS = 5000;
-const MAC_ADDRESS_PATTERN = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/;
+const MAC_ADDRESS_HEX_CHARACTER_COUNT = 12;
+const MAC_ADDRESS_GROUP_SIZE = 2;
 const IPV4_ADDRESS_PATTERN = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/;
 const ACTIVE_VIEW_NAMES = ["dhcp", "whitelist", "settings"];
 
@@ -300,6 +301,7 @@ function wireStaticDhcpEvents() {
   const refreshButton = document.getElementById("dhcp-refresh-button");
   const addButton = document.getElementById("dhcp-add-button");
   const formElement = document.getElementById("dhcp-form");
+  const macInput = document.getElementById("dhcp-mac-input");
   const cancelButton = document.getElementById("dhcp-cancel-button");
   const closeButton = document.getElementById("dhcp-close-button");
   const backdropElement = document.getElementById("dhcp-modal-backdrop");
@@ -307,6 +309,7 @@ function wireStaticDhcpEvents() {
   refreshButton.addEventListener("click", handleStaticDhcpRefreshClick);
   addButton.addEventListener("click", handleStaticDhcpAddClick);
   formElement.addEventListener("submit", handleStaticDhcpFormSubmit);
+  macInput.addEventListener("input", handleMACAddressInput);
   cancelButton.addEventListener("click", handleStaticDhcpCancelClick);
   closeButton.addEventListener("click", handleStaticDhcpCancelClick);
   backdropElement.addEventListener("click", handleStaticDhcpCancelClick);
@@ -469,10 +472,10 @@ async function handleStaticDhcpFormSubmit(formSubmitEvent) {
   const errorElement = document.getElementById("dhcp-form-error");
 
   const hostName = nameInput.value.trim();
-  const macAddress = macInput.value.trim();
+  const canonicalMACAddress = normalizeMACAddress(macInput.value);
   const ipAddress = ipInput.value.trim();
 
-  const validationMessage = validateStaticDhcpInput(hostName, macAddress, ipAddress);
+  const validationMessage = validateStaticDhcpInput(hostName, canonicalMACAddress, ipAddress);
   if (validationMessage !== "") {
     showFormError(errorElement, validationMessage);
     return;
@@ -481,7 +484,7 @@ async function handleStaticDhcpFormSubmit(formSubmitEvent) {
 
   const requestBody = {
     name: hostName,
-    macAddress: macAddress,
+    macAddress: canonicalMACAddress,
     ipAddress: ipAddress,
   };
 
@@ -495,13 +498,13 @@ async function handleStaticDhcpFormSubmit(formSubmitEvent) {
   }
 }
 
-function validateStaticDhcpInput(hostName, macAddress, ipAddress) {
+function validateStaticDhcpInput(hostName, canonicalMACAddress, ipAddress) {
   if (hostName === "") {
     return "A hostname is required.";
   }
 
-  if (MAC_ADDRESS_PATTERN.test(macAddress) === false) {
-    return "Enter a valid MAC address such as AA:BB:CC:DD:EE:FF.";
+  if (canonicalMACAddress === "") {
+    return "Enter a valid MAC address such as AABBCCDDEEFF.";
   }
 
   if (IPV4_ADDRESS_PATTERN.test(ipAddress) === false) {
@@ -515,6 +518,7 @@ function wireMacWhitelistEvents() {
   const refreshButton = document.getElementById("whitelist-refresh-button");
   const addButton = document.getElementById("whitelist-add-button");
   const formElement = document.getElementById("whitelist-form");
+  const macInput = document.getElementById("whitelist-mac-input");
   const cancelButton = document.getElementById("whitelist-cancel-button");
   const closeButton = document.getElementById("whitelist-close-button");
   const backdropElement = document.getElementById("whitelist-modal-backdrop");
@@ -522,6 +526,7 @@ function wireMacWhitelistEvents() {
   refreshButton.addEventListener("click", handleMacWhitelistRefreshClick);
   addButton.addEventListener("click", handleMacWhitelistAddClick);
   formElement.addEventListener("submit", handleMacWhitelistFormSubmit);
+  macInput.addEventListener("input", handleMACAddressInput);
   cancelButton.addEventListener("click", handleMacWhitelistCancelClick);
   closeButton.addEventListener("click", handleMacWhitelistCancelClick);
   backdropElement.addEventListener("click", handleMacWhitelistCancelClick);
@@ -658,16 +663,16 @@ async function handleMacWhitelistFormSubmit(formSubmitEvent) {
 
   const macInput = document.getElementById("whitelist-mac-input");
   const errorElement = document.getElementById("whitelist-form-error");
-  const macAddress = macInput.value.trim();
+  const canonicalMACAddress = normalizeMACAddress(macInput.value);
 
-  if (MAC_ADDRESS_PATTERN.test(macAddress) === false) {
-    showFormError(errorElement, "Enter a valid MAC address such as AA:BB:CC:DD:EE:FF.");
+  if (canonicalMACAddress === "") {
+    showFormError(errorElement, "Enter a valid MAC address such as AABBCCDDEEFF.");
     return;
   }
   hideFormError(errorElement);
 
   const requestBody = {
-    macAddress: macAddress,
+    macAddress: canonicalMACAddress,
   };
 
   try {
@@ -765,6 +770,47 @@ function appendDefinitionEntry(definitionListElement, termText, descriptionText)
 
   definitionListElement.appendChild(entryElement);
 }
+
+function normalizeMACAddress(inputValue) {
+  const withoutSeparators = inputValue.replace(/[^0-9A-Fa-f]/g, "");
+  const upperCaseCharacters = withoutSeparators.toUpperCase();
+
+  if (upperCaseCharacters.length !== MAC_ADDRESS_HEX_CHARACTER_COUNT) {
+    return "";
+  }
+
+  const canonicalMACAddress = buildFormattedMACAddress(upperCaseCharacters);
+  return canonicalMACAddress;
+}
+
+function buildFormattedMACAddress(hexCharacters) {
+  const hexGroups = [];
+  for (let characterIndex = 0; characterIndex < hexCharacters.length; characterIndex += MAC_ADDRESS_GROUP_SIZE) {
+    const remainingCharacters = hexCharacters.length - characterIndex;
+    if (remainingCharacters >= MAC_ADDRESS_GROUP_SIZE) {
+      const currentGroup = hexCharacters.slice(characterIndex, characterIndex + MAC_ADDRESS_GROUP_SIZE);
+      hexGroups.push(currentGroup);
+    } else {
+      const trailingCharacters = hexCharacters.slice(characterIndex);
+      hexGroups.push(trailingCharacters);
+    }
+  }
+
+  const formattedMACAddress = hexGroups.join(":");
+  return formattedMACAddress;
+}
+
+function handleMACAddressInput(inputEvent) {
+  const macInput = inputEvent.currentTarget;
+  const rawInputValue = macInput.value;
+  const withoutSeparators = rawInputValue.replace(/[^0-9A-Fa-f]/g, "");
+  const limitedCharacters = withoutSeparators.slice(0, MAC_ADDRESS_HEX_CHARACTER_COUNT);
+  const upperCaseCharacters = limitedCharacters.toUpperCase();
+  const formattedMACAddress = buildFormattedMACAddress(upperCaseCharacters);
+
+  macInput.value = formattedMACAddress;
+}
+
 
 
 

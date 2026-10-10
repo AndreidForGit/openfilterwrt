@@ -92,3 +92,24 @@ func TestMACWhitelistServiceRemoveMissingEntry(testingInstance *testing.T) {
 		testingInstance.Errorf("expected MACWhitelistEntryNotFoundError, received %v", removeError)
 	}
 }
+
+func TestMACWhitelistServiceAddsCompactMAC(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show wireless"] = CommandResult{
+		StandardOutput: sampleUCIWirelessOutput,
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	macWhitelistService := NewMACWhitelistService(uciClient, nil)
+
+	addError := macWhitelistService.AddMACWhitelistEntry("998877665544")
+	if addError != nil {
+		testingInstance.Fatalf("unexpected add error: %v", addError)
+	}
+
+	expectedCommand := "uci add_list wireless.default_radio0.maclist='99:88:77:66:55:44'"
+	if fakeExecutor.containsCommand(expectedCommand) == false {
+		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedCommand, fakeExecutor.executedCommands)
+	}
+}

@@ -88,6 +88,8 @@ Tailwind CSS Play CDN and vanilla JavaScript, with no build step:
 
 The Settings view stores the optional bearer token and an alternative API base URL
 in the browser `localStorage`; the dark mode preference is stored there as well.
+MAC address fields accept the compact form (`AABBCCDDEEFF`); colons are inserted
+automatically and the API always stores the canonical `AA:BB:CC:DD:EE:FF` form.
 Installing the PWA requires HTTPS or `localhost`.
 
 

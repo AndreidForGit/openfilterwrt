@@ -7,9 +7,9 @@ services:
     container_name: openwrt-controller
     restart: unless-stopped
     ports:
-      - "${LISTEN_PORT:-8080}:8080"
+      - "${LISTEN_PORT:-8081}:8081"
     environment:
-      LISTEN_ADDRESS: ":8080"
+      LISTEN_ADDRESS: ":8081"
       STATIC_DIRECTORY: "/app/static"
       ROUTER_ADDRESS: "${ROUTER_ADDRESS:?set ROUTER_ADDRESS before running docker compose}"
       ROUTER_USERNAME: "${ROUTER_USERNAME:?set ROUTER_USERNAME before running docker compose}"

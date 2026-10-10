@@ -76,6 +76,12 @@ func (service *StaticDHCPService) CreateStaticDHCPHost(newHost StaticDHCPHost) e
 		return validationError
 	}
 
+	canonicalMACAddress, normalizeError := NormalizeMACAddress(newHost.MACAddress)
+	if normalizeError != nil {
+		return normalizeError
+	}
+	newHost.MACAddress = canonicalMACAddress
+
 	service.mutationLock.Lock()
 	defer service.mutationLock.Unlock()
 
