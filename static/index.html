@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>OpenWrt Mobile Controller</title>
+  <meta name="description" content="Manage OpenWrt static DHCP reservations and the wireless MAC address allow list.">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <script src="/theme-init.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/tailwind-config.js"></script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .app-card {
+        @apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900;
+      }
+      .app-button {
+        @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50;
+      }
+      .app-button--primary {
+        @apply bg-slate-900 text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white;
+      }
+      .app-button--ghost {
+        @apply text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800;
+      }
+      .app-button--danger {
+        @apply text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950;
+      }
+      .app-input {
+        @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100;
+      }
+      .app-label {
+        @apply mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300;
+      }
+      .app-mono {
+        @apply font-mono text-sm;
+      }
+      .app-card-title {
+        @apply text-base font-semibold;
+      }
+      .app-card-row {
+        @apply flex items-center justify-between gap-4;
+      }
+      .app-card-row--header {
+        @apply flex items-start justify-between gap-3;
+      }
+      .app-definition-list {
+        @apply mt-3 grid grid-cols-1 gap-1 text-sm;
+      }
+      .app-definition-term {
+        @apply text-slate-500 dark:text-slate-400;
+      }
+      .app-table-row {
+        @apply border-b border-slate-100 dark:border-slate-800;
+      }
+      .app-table-cell {
+        @apply px-4 py-3;
+      }
+      .app-table-cell--right {
+        @apply text-right;
+      }
+      .navigation-button {
+        @apply flex flex-1 flex-col items-center justify-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800 md:flex-row md:justify-start md:gap-3 md:px-4 md:py-3 md:text-sm;
+      }
+      .navigation-button.is-active {
+        @apply bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900;
+      }
+      .connection-dot {
+        @apply inline-block h-2.5 w-2.5 rounded-full bg-slate-400;
+      }
+      .connection-dot.is-online {
+        @apply bg-emerald-500;
+      }
+      .connection-dot.is-offline {
+        @apply bg-red-500;
+      }
+      .app-toast {
+        @apply pointer-events-auto flex w-full items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-lg;
+      }
+      .app-toast--success {
+        @apply bg-emerald-600 text-white;
+      }
+      .app-toast--error {
+        @apply bg-red-600 text-white;
+      }
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-100 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+  <div class="min-h-full md:flex">
+    <aside class="hidden border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 md:flex md:w-64 md:flex-col md:gap-1 md:p-4">
+      <div class="mb-4 flex items-center gap-3 px-2">
+        <img src="/icon.svg" alt="" width="36" height="36" class="h-9 w-9">
+        <span class="text-sm font-semibold">OpenWrt Controller</span>
+      </div>
+      <button type="button" class="navigation-button" data-view-target="dhcp">
+        <span aria-hidden="true">&#9636;</span>
+        <span>DHCP reservations</span>
+      </button>
+      <button type="button" class="navigation-button" data-view-target="whitelist">
+        <span aria-hidden="true">&#9737;</span>
+        <span>MAC allow list</span>
+      </button>
+      <button type="button" class="navigation-button" data-view-target="settings">
+        <span aria-hidden="true">&#9881;</span>
+        <span>Settings</span>
+      </button>
+    </aside>
+
+    <div class="flex min-h-screen flex-col">
+      <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 md:px-8">
+          <div class="flex items-center gap-3">
+            <img src="/icon.svg" alt="" width="32" height="32" class="h-8 w-8 md:hidden">
+            <div>
+              <h1 class="text-base font-semibold leading-tight md:text-lg">OpenWrt Mobile Controller</h1>
+              <p class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span id="connection-status" class="connection-dot" aria-hidden="true"></span>
+                <span id="connection-status-text">Checking router connection&hellip;</span>
+              </p>
+            </div>
+          </div>
+          <button id="theme-toggle-button" type="button" class="app-button app-button--ghost" aria-label="Toggle dark mode">Theme</button>
+        </div>
+      </header>
+
+      <main class="flex-1 px-4 pb-28 pt-4 md:px-8 md:pb-8">
+        <section id="view-dhcp" class="space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Static DHCP reservations</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Fixed IP addresses handed out by dnsmasq.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="dhcp-refresh-button" type="button" class="app-button app-button--ghost">Refresh</button>
+              <button id="dhcp-add-button" type="button" class="app-button app-button--primary hidden md:inline-flex">Add reservation</button>
+            </div>
+          </div>
+
+          <p id="dhcp-loading" class="text-sm text-slate-500 dark:text-slate-400">Loading&hellip;</p>
+          <p id="dhcp-empty-state" class="app-card hidden text-sm text-slate-500 dark:text-slate-400">No static DHCP reservations yet.</p>
+
+          <ul id="dhcp-card-list" class="grid grid-cols-1 gap-3 md:hidden"></ul>
+
+          <div class="app-card hidden overflow-x-auto p-0 md:block">
+            <table class="w-full text-left text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  <th scope="col" class="px-4 py-3">Name</th>
+                  <th scope="col" class="px-4 py-3">MAC address</th>
+                  <th scope="col" class="px-4 py-3">IP address</th>
+                  <th scope="col" class="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="dhcp-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="view-whitelist" class="hidden space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-semibold">Wireless MAC allow list</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-400">Only the listed clients can join the access points.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="whitelist-refresh-button" type="button" class="app-button app-button--ghost">Refresh</button>
+              <button id="whitelist-add-button" type="button" class="app-button app-button--primary hidden md:inline-flex">Add MAC address</button>
+            </div>
+          </div>
+
+          <p class="app-card border-amber-300 bg-amber-50 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            Adding the first MAC address switches the access points to allow (whitelist) mode, which blocks every client that is not listed.
+          </p>
+
+          <p id="whitelist-loading" class="text-sm text-slate-500 dark:text-slate-400">Loading&hellip;</p>
+          <p id="whitelist-empty-state" class="app-card hidden text-sm text-slate-500 dark:text-slate-400">The allow list is empty.</p>
+
+          <ul id="whitelist-card-list" class="grid grid-cols-1 gap-3 md:hidden"></ul>
+
+          <div class="app-card hidden overflow-x-auto p-0 md:block">
+            <table class="w-full text-left text-sm">
+              <thead>
+                <tr class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  <th scope="col" class="px-4 py-3">MAC address</th>
+                  <th scope="col" class="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="whitelist-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+
+        <section id="view-settings" class="hidden space-y-4">
+          <div>
+            <h2 class="text-lg font-semibold">Settings</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Stored locally in this browser only.</p>
+          </div>
+
+          <form id="settings-form" class="app-card space-y-4">
+            <div>
+              <label class="app-label" for="settings-token-input">API bearer token (optional)</label>
+              <input id="settings-token-input" class="app-input" type="password" autocomplete="off" spellcheck="false" placeholder="Leave empty when the API has no token">
+            </div>
+            <div>
+              <label class="app-label" for="settings-api-base-input">API base URL (optional)</label>
+              <input id="settings-api-base-input" class="app-input" type="url" autocomplete="off" spellcheck="false" placeholder="Leave empty to use this origin">
+              <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Only needed when the PWA is served from a different origin than the API.</p>
+            </div>
+            <button type="submit" class="app-button app-button--primary">Save settings</button>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <nav class="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 md:hidden" aria-label="Primary">
+    <div class="flex items-stretch gap-1 px-2 py-1" style="padding-bottom: env(safe-area-inset-bottom);">
+      <button type="button" class="navigation-button" data-view-target="dhcp">
+        <span aria-hidden="true">&#9636;</span>
+        <span>DHCP</span>
+      </button>
+      <button type="button" class="navigation-button" data-view-target="whitelist">
+        <span aria-hidden="true">&#9737;</span>
+        <span>Allow list</span>
+      </button>
+      <button type="button" class="navigation-button" data-view-target="settings">
+        <span aria-hidden="true">&#9881;</span>
+        <span>Settings</span>
+      </button>
+    </div>
+  </nav>
+
+  <button id="primary-action-button" type="button" class="fixed bottom-24 right-4 z-30 h-14 w-14 rounded-full bg-sky-600 text-2xl leading-none text-white shadow-lg transition hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 md:hidden" aria-label="Add entry">
+    <span aria-hidden="true">+</span>
+  </button>
+
+
+  <div id="dhcp-modal" class="fixed inset-0 z-40 hidden" role="dialog" aria-modal="true" aria-labelledby="dhcp-modal-title">
+    <div id="dhcp-modal-backdrop" class="absolute inset-0 bg-slate-900/60"></div>
+    <div class="relative flex min-h-full items-end justify-center md:items-center md:p-6">
+      <div class="w-full max-w-lg rounded-t-2xl bg-white p-5 shadow-xl dark:bg-slate-900 md:rounded-2xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 id="dhcp-modal-title" class="text-lg font-semibold">Add reservation</h3>
+          <button id="dhcp-close-button" type="button" class="app-button app-button--ghost" aria-label="Close">&times;</button>
+        </div>
+        <form id="dhcp-form" class="space-y-4">
+          <div>
+            <label class="app-label" for="dhcp-name-input">Hostname</label>
+            <input id="dhcp-name-input" class="app-input" type="text" required maxlength="63" autocomplete="off" spellcheck="false" placeholder="laptop">
+          </div>
+          <div>
+            <label class="app-label" for="dhcp-mac-input">MAC address</label>
+            <input id="dhcp-mac-input" class="app-input" type="text" required autocomplete="off" spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF">
+          </div>
+          <div>
+            <label class="app-label" for="dhcp-ip-input">IP address</label>
+            <input id="dhcp-ip-input" class="app-input" type="text" required inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.100">
+          </div>
+          <p id="dhcp-form-error" class="hidden text-sm text-red-600 dark:text-red-400"></p>
+          <div class="flex justify-end gap-2">
+            <button id="dhcp-cancel-button" type="button" class="app-button app-button--ghost">Cancel</button>
+            <button type="submit" class="app-button app-button--primary">Save reservation</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="whitelist-modal" class="fixed inset-0 z-40 hidden" role="dialog" aria-modal="true" aria-labelledby="whitelist-modal-title">
+    <div id="whitelist-modal-backdrop" class="absolute inset-0 bg-slate-900/60"></div>
+    <div class="relative flex min-h-full items-end justify-center md:items-center md:p-6">
+      <div class="w-full max-w-lg rounded-t-2xl bg-white p-5 shadow-xl dark:bg-slate-900 md:rounded-2xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 id="whitelist-modal-title" class="text-lg font-semibold">Allow MAC address</h3>
+          <button id="whitelist-close-button" type="button" class="app-button app-button--ghost" aria-label="Close">&times;</button>
+        </div>
+        <form id="whitelist-form" class="space-y-4">
+          <div>
+            <label class="app-label" for="whitelist-mac-input">MAC address</label>
+            <input id="whitelist-mac-input" class="app-input" type="text" required autocomplete="off" spellcheck="false" placeholder="AA:BB:CC:DD:EE:FF">
+          </div>
+          <p id="whitelist-form-error" class="hidden text-sm text-red-600 dark:text-red-400"></p>
+          <div class="flex justify-end gap-2">
+            <button id="whitelist-cancel-button" type="button" class="app-button app-button--ghost">Cancel</button>
+            <button type="submit" class="app-button app-button--primary">Allow address</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-region" class="pointer-events-none fixed inset-x-0 top-16 z-50 mx-auto flex max-w-md flex-col gap-2 px-4 md:top-20" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
+
+

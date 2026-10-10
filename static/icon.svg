@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192" role="img" aria-label="OpenWrt Mobile Controller">
+  <rect width="192" height="192" rx="36" fill="#0f172a"/>
+  <circle cx="96" cy="146" r="9" fill="#38bdf8"/>
+  <g fill="none" stroke="#38bdf8" stroke-width="11" stroke-linecap="round">
+    <path d="M44 104a72 72 0 0 1 104 0"/>
+    <path d="M66 126a44 44 0 0 1 60 0"/>
+  </g>
+</svg>

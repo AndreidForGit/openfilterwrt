@@ -1,0 +1,32 @@
+# Compiled Go binary produced by `go build .`
+/openwrt-controller
+
+# Go build and test artifacts
+*.exe
+*.exe~
+*.test
+*.out
+/coverage.out
+coverage.html
+/bin/
+/dist/
+
+# Local environment / secrets (never commit credentials)
+.env
+.env.*
+!.env.example
+secrets.env
+
+# Editor and IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Go workspace files
+go.work
+go.work.sum
