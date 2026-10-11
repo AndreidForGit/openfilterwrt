@@ -1,5 +1,9 @@
 # OpenWrt Mobile Controller
 
+> **About this project.** This is a personal project built for two reasons: to learn
+> Go, and to have a simple way to filter which devices can connect to my Wi-Fi. The
+> repository is therefore both a hands-on Go exercise and a small, practical tool.
+
 ## System Overview
 
 The OpenWrt Mobile Controller is a lightweight backend service written in Go that
