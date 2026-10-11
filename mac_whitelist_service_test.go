@@ -139,8 +139,12 @@ func TestMACWhitelistServiceSkipsDuplicateMAC(testingInstance *testing.T) {
 		testingInstance.Errorf("expected the duplicate MAC address not to be added again, executed: %v", fakeExecutor.executedCommands)
 	}
 
-	if fakeExecutor.containsCommand("uci commit wireless") == false {
-		testingInstance.Errorf("expected the wireless configuration to be committed, executed: %v", fakeExecutor.executedCommands)
+	if fakeExecutor.containsCommand("uci commit wireless") {
+		testingInstance.Errorf("expected no commit when nothing changes, executed: %v", fakeExecutor.executedCommands)
+	}
+
+	if fakeExecutor.containsCommand("wifi reload") {
+		testingInstance.Errorf("expected no Wi-Fi reload when nothing changes, executed: %v", fakeExecutor.executedCommands)
 	}
 }
 
@@ -182,5 +186,40 @@ func TestMACWhitelistServiceRemovesFromRealWorldOutput(testingInstance *testing.
 	expectedCommand := "uci del_list wireless.default_radio0.maclist='AA:BB:CC:DD:EE:02'"
 	if fakeExecutor.containsCommand(expectedCommand) == false {
 		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedCommand, fakeExecutor.executedCommands)
+	}
+}
+
+const sampleUCIWirelessOutputWithoutAllowFilter = `wireless.default_radio0=wifi-iface
+wireless.default_radio0.mode='ap'
+wireless.default_radio0.maclist='AA:BB:CC:DD:EE:FF'
+`
+
+func TestMACWhitelistServiceAddsMissingFilterWhenMACAlreadyListed(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show wireless"] = CommandResult{
+		StandardOutput: sampleUCIWirelessOutputWithoutAllowFilter,
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	macWhitelistService := NewMACWhitelistService(uciClient, nil)
+
+	addError := macWhitelistService.AddMACWhitelistEntry("AA:BB:CC:DD:EE:FF")
+	if addError != nil {
+		testingInstance.Fatalf("unexpected add error: %v", addError)
+	}
+
+	expectedSetCommand := "uci set wireless.default_radio0.macfilter='allow'"
+	if fakeExecutor.containsCommand(expectedSetCommand) == false {
+		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedSetCommand, fakeExecutor.executedCommands)
+	}
+
+	duplicateCommand := "uci add_list wireless.default_radio0.maclist='AA:BB:CC:DD:EE:FF'"
+	if fakeExecutor.containsCommand(duplicateCommand) {
+		testingInstance.Errorf("expected the already listed MAC address not to be added again, executed: %v", fakeExecutor.executedCommands)
+	}
+
+	if fakeExecutor.containsCommand("uci commit wireless") == false {
+		testingInstance.Errorf("expected the wireless configuration to be committed, executed: %v", fakeExecutor.executedCommands)
 	}
 }

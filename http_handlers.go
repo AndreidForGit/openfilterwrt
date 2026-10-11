@@ -27,6 +27,16 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// CreatedStaticDHCPHostResponse is the payload returned after creating a static
+// DHCP reservation. Warning is filled in when the reservation was created but its
+// MAC address could not also be added to the wireless allow list.
+type CreatedStaticDHCPHostResponse struct {
+	Name       string `json:"name"`
+	MACAddress string `json:"macAddress"`
+	IPAddress  string `json:"ipAddress"`
+	Warning    string `json:"warning,omitempty"`
+}
+
 // Application groups every manager used by the HTTP handlers.
 type Application struct {
 	StaticDHCPManager   StaticDHCPManager
@@ -102,11 +112,22 @@ func (application *Application) handleListStaticDHCPHosts(responseWriter http.Re
 // handleCreateStaticDHCPHost answers POST /api/static-dhcp-hosts. It decodes the
 // JSON body into a StaticDHCPHost and returns HTTP 201 when the reservation was
 // created.
+//
+// Creating a reservation also allows its MAC address on Wi-Fi, because the two
+// features usually go together. That second step is best effort: when it fails the
+// reservation is still created and the problem is reported in the "warning" field.
 func (application *Application) handleCreateStaticDHCPHost(responseWriter http.ResponseWriter, request *http.Request) {
 	var requestedHost StaticDHCPHost
 	decodeError := json.NewDecoder(request.Body).Decode(&requestedHost)
 	if decodeError != nil {
 		writeErrorResponse(responseWriter, http.StatusBadRequest, "invalid JSON request body")
+		return
+	}
+
+	canonicalMACAddress, normalizeError := NormalizeMACAddress(requestedHost.MACAddress)
+	if normalizeError != nil {
+		statusCode := serviceErrorStatusCode(normalizeError)
+		writeErrorResponse(responseWriter, statusCode, normalizeError.Error())
 		return
 	}
 
@@ -117,7 +138,18 @@ func (application *Application) handleCreateStaticDHCPHost(responseWriter http.R
 		return
 	}
 
-	writeJSONResponse(responseWriter, http.StatusCreated, requestedHost)
+	createdHostResponse := CreatedStaticDHCPHostResponse{
+		Name:       requestedHost.Name,
+		MACAddress: canonicalMACAddress,
+		IPAddress:  requestedHost.IPAddress,
+	}
+
+	allowListError := application.MACWhitelistManager.AddMACWhitelistEntry(canonicalMACAddress)
+	if allowListError != nil {
+		createdHostResponse.Warning = "the reservation was created but the MAC address could not be added to the Wi-Fi allow list: " + allowListError.Error()
+	}
+
+	writeJSONResponse(responseWriter, http.StatusCreated, createdHostResponse)
 }
 
 // handleDeleteStaticDHCPHost answers DELETE /api/static-dhcp-hosts/{macAddress}.

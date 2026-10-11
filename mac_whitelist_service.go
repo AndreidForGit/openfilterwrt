@@ -121,6 +121,10 @@ func (service *MACWhitelistService) AddMACWhitelistEntry(macAddress string) erro
 		return noSectionsError
 	}
 
+	if allTargetSectionsAllowMACAddress(sections, targetSectionIdentifiers, canonicalMACAddress) {
+		return nil
+	}
+
 	for sectionIndex := 0; sectionIndex < len(targetSectionIdentifiers); sectionIndex++ {
 		sectionIdentifier := targetSectionIdentifiers[sectionIndex]
 
@@ -248,6 +252,31 @@ func (service *MACWhitelistService) targetSectionIdentifiers(sections map[string
 
 	sort.Strings(targetSectionIdentifiers)
 	return targetSectionIdentifiers
+}
+
+// allTargetSectionsAllowMACAddress reports whether every target section is already
+// in allow mode and already contains the given MAC address. When that is true there
+// is nothing to change, so the caller can skip the commit and the Wi-Fi reload
+// (which would briefly disturb connected clients).
+func allTargetSectionsAllowMACAddress(sections map[string]*UCISection, targetSectionIdentifiers []string, macAddress string) bool {
+	for sectionIndex := 0; sectionIndex < len(targetSectionIdentifiers); sectionIndex++ {
+		sectionIdentifier := targetSectionIdentifiers[sectionIndex]
+		section, sectionExists := sections[sectionIdentifier]
+		if sectionExists == false {
+			return false
+		}
+
+		filterMode := firstOptionValue(section, wirelessMACFilterOptionName)
+		if filterMode != wirelessMACFilterAllowValue {
+			return false
+		}
+
+		if sectionContainsMACAddress(section, wirelessMACListOptionName, macAddress) == false {
+			return false
+		}
+	}
+
+	return true
 }
 
 // sectionContainsMACAddress reports whether an option already contains a given MAC

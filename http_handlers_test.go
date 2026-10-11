@@ -44,6 +44,7 @@ type fakeMACWhitelistManager struct {
 	listError         error
 	addError          error
 	removeError       error
+	addedMACAddress   string
 	removedMACAddress string
 }
 
@@ -55,6 +56,7 @@ func (manager *fakeMACWhitelistManager) ListMACWhitelistEntries() ([]MACWhitelis
 }
 
 func (manager *fakeMACWhitelistManager) AddMACWhitelistEntry(macAddress string) error {
+	manager.addedMACAddress = macAddress
 	return manager.addError
 }
 
@@ -230,5 +232,80 @@ func TestListMACWhitelistEndpoint(testingInstance *testing.T) {
 	responseBody := responseRecorder.Body.String()
 	if strings.Contains(responseBody, "AA:BB:CC:DD:EE:FF") == false {
 		testingInstance.Errorf("expected MAC address in body, received %q", responseBody)
+	}
+}
+
+func TestCreateStaticDHCPHostAlsoAllowsMACAddress(testingInstance *testing.T) {
+	fakeMACManager := &fakeMACWhitelistManager{}
+	application := &Application{
+		StaticDHCPManager:   &fakeStaticDHCPManager{},
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"aabbccddeeff","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("POST", "/api/static-dhcp-hosts", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusCreated {
+		testingInstance.Errorf("expected status 201, received %d", responseRecorder.Code)
+	}
+
+	if fakeMACManager.addedMACAddress != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected the normalized MAC address to be allowed, received %q", fakeMACManager.addedMACAddress)
+	}
+
+	if strings.Contains(responseRecorder.Body.String(), "warning") {
+		testingInstance.Errorf("did not expect a warning, received %q", responseRecorder.Body.String())
+	}
+}
+
+func TestCreateStaticDHCPHostReportsAllowListWarning(testingInstance *testing.T) {
+	fakeMACManager := &fakeMACWhitelistManager{
+		addError: errors.New("wireless reload failed"),
+	}
+	application := &Application{
+		StaticDHCPManager:   &fakeStaticDHCPManager{},
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("POST", "/api/static-dhcp-hosts", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusCreated {
+		testingInstance.Errorf("expected status 201 even when the allow list fails, received %d", responseRecorder.Code)
+	}
+
+	if strings.Contains(responseRecorder.Body.String(), "\"warning\"") == false {
+		testingInstance.Errorf("expected a warning in the body, received %q", responseRecorder.Body.String())
+	}
+}
+
+func TestCreateStaticDHCPHostSkipsAllowListOnFailure(testingInstance *testing.T) {
+	fakeMACManager := &fakeMACWhitelistManager{}
+	fakeDHCPManager := &fakeStaticDHCPManager{
+		createError: errors.New("router refused the change"),
+	}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("POST", "/api/static-dhcp-hosts", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusBadGateway {
+		testingInstance.Errorf("expected status 502, received %d", responseRecorder.Code)
+	}
+
+	if fakeMACManager.addedMACAddress != "" {
+		testingInstance.Errorf("expected the allow list not to be touched, received %q", fakeMACManager.addedMACAddress)
 	}
 }

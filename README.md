@@ -115,14 +115,19 @@ docker run -v "$PWD/.env:/run/config/.env:ro" -e ENV_FILE_PATH=/run/config/.env 
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health. |
 | `GET` | `/api/static-dhcp-hosts` | List static DHCP reservations. |
-| `POST` | `/api/static-dhcp-hosts` | Create a reservation (`name`, `macAddress`, `ipAddress`). |
-| `DELETE` | `/api/static-dhcp-hosts/{macAddress}` | Delete a reservation by MAC address. |
+| `POST` | `/api/static-dhcp-hosts` | Create a reservation (`name`, `macAddress`, `ipAddress`) and also allow its MAC address on Wi-Fi. |
+| `DELETE` | `/api/static-dhcp-hosts/{macAddress}` | Delete a reservation by MAC address. The MAC address is not removed from the allow list. |
 | `GET` | `/api/mac-whitelist` | List allowed MAC addresses. |
 | `POST` | `/api/mac-whitelist` | Allow a MAC address (`macAddress`). |
 | `DELETE` | `/api/mac-whitelist/{macAddress}` | Revoke a MAC address. |
 
-> Note: adding the first MAC address switches the target wireless interface into
-> allow (whitelist) mode, which blocks every client that is not listed.
+> Creating a reservation always adds its MAC address to the Wi-Fi allow list, because
+> the two features usually go together. When that second step fails, the reservation
+> is still created and the response contains a `warning` field explaining the problem.
+
+> Note: adding the first MAC address (directly or by creating a reservation)
+> switches the target wireless interface into allow (whitelist) mode, which blocks
+> every client that is not listed.
 
 ## Frontend (Progressive Web App)
 
@@ -143,6 +148,9 @@ The Settings view stores the optional bearer token and an alternative API base U
 in the browser `localStorage`; the dark mode preference is stored there as well.
 MAC address fields accept the compact form (`AABBCCDDEEFF`); colons are inserted
 automatically and the API always stores the canonical `AA:BB:CC:DD:EE:FF` form.
+The allow list also shows the device name for every MAC address that has a static
+DHCP reservation; the two lists are joined in the browser, so no extra request is
+needed.
 Installing the PWA requires HTTPS or `localhost`.
 
 

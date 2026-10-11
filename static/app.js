@@ -139,6 +139,20 @@ function extractErrorMessage(responsePayload, statusCode) {
   return "Request failed with status " + statusCode;
 }
 
+// readResponseWarning returns the "warning" field of an API response, or an empty
+// string when the response does not contain one.
+function readResponseWarning(responsePayload) {
+  if (responsePayload !== null) {
+    if (typeof responsePayload === "object") {
+      if (typeof responsePayload.warning === "string") {
+        return responsePayload.warning;
+      }
+    }
+  }
+
+  return "";
+}
+
 function wireNavigationEvents() {
   const navigationButtons = document.querySelectorAll("[data-view-target]");
   for (let buttonIndex = 0; buttonIndex < navigationButtons.length; buttonIndex++) {
@@ -339,6 +353,7 @@ async function refreshStaticDhcpHosts() {
       applicationState.staticDhcpHosts = [];
     }
     renderStaticDhcpHosts();
+    renderMacWhitelistEntries();
   } catch (unexpectedError) {
     showToast(unexpectedError.message, "error");
   } finally {
@@ -489,10 +504,18 @@ async function handleStaticDhcpFormSubmit(formSubmitEvent) {
   };
 
   try {
-    await performApiRequest("POST", "/api/static-dhcp-hosts", requestBody);
-    showToast("Reservation created.", "success");
+    const createdHostResponse = await performApiRequest("POST", "/api/static-dhcp-hosts", requestBody);
     closeStaticDhcpForm();
     await refreshStaticDhcpHosts();
+    await refreshMacWhitelistEntries();
+
+    const warningMessage = readResponseWarning(createdHostResponse);
+    if (warningMessage !== "") {
+      showToast(warningMessage, "warning");
+      return;
+    }
+
+    showToast("Reservation created and MAC address allowed on Wi-Fi.", "success");
   } catch (unexpectedError) {
     showFormError(errorElement, unexpectedError.message);
   }
@@ -563,10 +586,48 @@ async function refreshMacWhitelistEntries() {
   }
 }
 
+// buildDeviceNamesByMACAddress turns the static DHCP reservations into a lookup
+// table, so the allow list can show the device name next to each MAC address. The
+// key is the normalized MAC address, which makes the comparison tolerant to upper
+// or lower case and to missing colons.
+function buildDeviceNamesByMACAddress() {
+  const deviceNamesByMACAddress = {};
+
+  const hostCount = applicationState.staticDhcpHosts.length;
+  for (let hostIndex = 0; hostIndex < hostCount; hostIndex++) {
+    const currentHost = applicationState.staticDhcpHosts[hostIndex];
+    const normalizedMACAddress = normalizeMACAddress(currentHost.macAddress);
+    if (normalizedMACAddress === "") {
+      continue;
+    }
+
+    deviceNamesByMACAddress[normalizedMACAddress] = currentHost.name;
+  }
+
+  return deviceNamesByMACAddress;
+}
+
+// lookupDeviceName returns the device name for a MAC address, or an empty string
+// when there is no matching reservation.
+function lookupDeviceName(deviceNamesByMACAddress, macAddress) {
+  const normalizedMACAddress = normalizeMACAddress(macAddress);
+  if (normalizedMACAddress === "") {
+    return "";
+  }
+
+  const knownDeviceName = deviceNamesByMACAddress[normalizedMACAddress];
+  if (knownDeviceName === undefined) {
+    return "";
+  }
+
+  return knownDeviceName;
+}
+
 function renderMacWhitelistEntries() {
   const cardListElement = document.getElementById("whitelist-card-list");
   const tableBodyElement = document.getElementById("whitelist-table-body");
   const emptyStateElement = document.getElementById("whitelist-empty-state");
+  const deviceNamesByMACAddress = buildDeviceNamesByMACAddress();
 
   clearChildElements(cardListElement);
   clearChildElements(tableBodyElement);
@@ -580,21 +641,35 @@ function renderMacWhitelistEntries() {
 
   for (let entryIndex = 0; entryIndex < entryCount; entryIndex++) {
     const currentEntry = applicationState.macWhitelistEntries[entryIndex];
-    const cardElement = createMacWhitelistCard(currentEntry);
+    const deviceName = lookupDeviceName(deviceNamesByMACAddress, currentEntry.macAddress);
+
+    const cardElement = createMacWhitelistCard(currentEntry, deviceName);
     cardListElement.appendChild(cardElement);
-    const rowElement = createMacWhitelistTableRow(currentEntry);
+    const rowElement = createMacWhitelistTableRow(currentEntry, deviceName);
     tableBodyElement.appendChild(rowElement);
   }
 }
 
-function createMacWhitelistCard(whitelistEntry) {
+function createMacWhitelistCard(whitelistEntry, deviceName) {
   const cardElement = document.createElement("li");
   cardElement.className = "app-card app-card-row";
+
+  const textContainerElement = document.createElement("div");
+  textContainerElement.className = "min-w-0";
+
+  if (deviceName !== "") {
+    const deviceNameElement = document.createElement("p");
+    deviceNameElement.className = "app-card-title";
+    deviceNameElement.textContent = deviceName;
+    textContainerElement.appendChild(deviceNameElement);
+  }
 
   const macElement = document.createElement("span");
   macElement.className = "app-mono";
   macElement.textContent = whitelistEntry.macAddress;
-  cardElement.appendChild(macElement);
+  textContainerElement.appendChild(macElement);
+
+  cardElement.appendChild(textContainerElement);
 
   const deleteButton = createDeleteButton(whitelistEntry.macAddress, handleRemoveMacWhitelistEntryClick);
   cardElement.appendChild(deleteButton);
@@ -602,10 +677,16 @@ function createMacWhitelistCard(whitelistEntry) {
   return cardElement;
 }
 
-function createMacWhitelistTableRow(whitelistEntry) {
+function createMacWhitelistTableRow(whitelistEntry, deviceName) {
   const rowElement = document.createElement("tr");
   rowElement.className = "app-table-row";
 
+  let displayedDeviceName = deviceName;
+  if (displayedDeviceName === "") {
+    displayedDeviceName = "\u2014";
+  }
+
+  appendTableCell(rowElement, displayedDeviceName, "app-table-cell");
   appendTableCell(rowElement, whitelistEntry.macAddress, "app-table-cell app-mono");
 
   const actionCellElement = document.createElement("td");

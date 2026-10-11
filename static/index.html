@@ -87,6 +87,9 @@
       .app-toast--error {
         @apply bg-red-600 text-white;
       }
+      .app-toast--warning {
+        @apply bg-amber-500 text-white;
+      }
     }
   </style>
 </head>
@@ -186,6 +189,7 @@
             <table class="w-full text-left text-sm">
               <thead>
                 <tr class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  <th scope="col" class="px-4 py-3">Device</th>
                   <th scope="col" class="px-4 py-3">MAC address</th>
                   <th scope="col" class="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -263,6 +267,7 @@
             <label class="app-label" for="dhcp-ip-input">IP address</label>
             <input id="dhcp-ip-input" class="app-input" type="text" required inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.100">
           </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400">The MAC address is also added to the Wi-Fi allow list. This can switch the access points to allow-list mode and disconnect clients that are not listed.</p>
           <p id="dhcp-form-error" class="hidden text-sm text-red-600 dark:text-red-400"></p>
           <div class="flex justify-end gap-2">
             <button id="dhcp-cancel-button" type="button" class="app-button app-button--ghost">Cancel</button>

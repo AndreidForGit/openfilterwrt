@@ -57,6 +57,23 @@ the same `uci` commands you would type by hand.
    the two lists.
 4. Every 30 seconds it asks `/api/health` again to keep the indicator up to date.
 
+## What happens when you add a DHCP reservation
+
+1. `app.js` sends `POST /api/static-dhcp-hosts` with the hostname, the MAC address
+   and the IP address.
+2. `handleCreateStaticDHCPHost` normalizes the MAC address and calls
+   `StaticDHCPService.CreateStaticDHCPHost`.
+3. The service runs `uci add dhcp host`, sets the `name`, `mac` and `ip` options,
+   then `uci commit dhcp` and restarts dnsmasq.
+4. Because the two features usually go together, the handler then calls
+   `MACWhitelistService.AddMACWhitelistEntry` with the same MAC address.
+5. If that second step fails, the reservation is still kept and the response has a
+   `warning` field, so the page can tell the user what went wrong.
+
+Deleting a reservation does not remove the MAC address from the allow list. That is
+safer, because the device keeps working until an administrator removes it on
+purpose.
+
 ## What happens when you click "Allow address"
 
 This is the most interesting flow, because it shows how one click travels all the
@@ -71,12 +88,19 @@ way to the router.
 4. The service first reads the current wireless configuration by running
    `uci show wireless` over SSH, and works out which `wifi-iface` sections are
    access points.
-5. For each access point it:
-   - adds the MAC address, unless it is already there (this avoids duplicates),
-   - turns the MAC filter on with `uci set ... macfilter='allow'`.
-6. It saves the change with `uci commit wireless`.
-7. It applies the change with `wifi reload`.
-8. The handler answers `201 Created`, and the page refreshes its list.
+5. If every access point is already in allow mode and already lists that MAC
+   address, there is nothing to do and the service stops here. No commit and no
+   reload happen, so connected clients are not disturbed.
+6. Otherwise, for each access point it turns the MAC filter on with
+   `uci set ... macfilter='allow'` and adds the MAC address unless it is already
+   listed (this avoids duplicates).
+7. It saves the change with `uci commit wireless`.
+8. It applies the change with `wifi reload`.
+9. The handler answers `201 Created`, and the page refreshes its list.
+
+The allow list page also shows the device name of every MAC address that has a
+static DHCP reservation. The browser joins the two lists, so the backend does not
+need to know about that relationship.
 
 The commands that actually run on the router look like this:
 
