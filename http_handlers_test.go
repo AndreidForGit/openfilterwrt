@@ -19,7 +19,10 @@ type fakeStaticDHCPManager struct {
 	hosts             []StaticDHCPHost
 	listError         error
 	createError       error
+	updateError       error
 	deleteError       error
+	updatedCurrentMAC string
+	updatedHost       StaticDHCPHost
 	deletedMACAddress string
 }
 
@@ -32,6 +35,12 @@ func (manager *fakeStaticDHCPManager) ListStaticDHCPHosts() ([]StaticDHCPHost, e
 
 func (manager *fakeStaticDHCPManager) CreateStaticDHCPHost(newHost StaticDHCPHost) error {
 	return manager.createError
+}
+
+func (manager *fakeStaticDHCPManager) UpdateStaticDHCPHost(currentMACAddress string, updatedHost StaticDHCPHost) error {
+	manager.updatedCurrentMAC = currentMACAddress
+	manager.updatedHost = updatedHost
+	return manager.updateError
 }
 
 func (manager *fakeStaticDHCPManager) DeleteStaticDHCPHost(macAddress string) error {
@@ -307,5 +316,155 @@ func TestCreateStaticDHCPHostSkipsAllowListOnFailure(testingInstance *testing.T)
 
 	if fakeMACManager.addedMACAddress != "" {
 		testingInstance.Errorf("expected the allow list not to be touched, received %q", fakeMACManager.addedMACAddress)
+	}
+}
+
+func TestUpdateStaticDHCPHostKeepsMACAddress(testingInstance *testing.T) {
+	fakeDHCPManager := &fakeStaticDHCPManager{}
+	fakeMACManager := &fakeMACWhitelistManager{}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"renamed","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.150"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		testingInstance.Errorf("expected status 200, received %d", responseRecorder.Code)
+	}
+
+	if fakeDHCPManager.updatedCurrentMAC != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected the current MAC address from the URL, received %q", fakeDHCPManager.updatedCurrentMAC)
+	}
+
+	if fakeDHCPManager.updatedHost.Name != "renamed" {
+		testingInstance.Errorf("expected the updated name, received %q", fakeDHCPManager.updatedHost.Name)
+	}
+
+	if fakeMACManager.addedMACAddress != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected the MAC address to be allowed, received %q", fakeMACManager.addedMACAddress)
+	}
+
+	if fakeMACManager.removedMACAddress != "" {
+		testingInstance.Errorf("expected no allow list removal when the MAC address did not change, received %q", fakeMACManager.removedMACAddress)
+	}
+}
+
+func TestUpdateStaticDHCPHostRenamesMACAndRevokesOldOne(testingInstance *testing.T) {
+	fakeDHCPManager := &fakeStaticDHCPManager{
+		hosts: []StaticDHCPHost{
+			{Name: "laptop", MACAddress: "11:22:33:44:55:66", IPAddress: "192.168.1.100"},
+		},
+	}
+	fakeMACManager := &fakeMACWhitelistManager{}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"11:22:33:44:55:66","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		testingInstance.Errorf("expected status 200, received %d", responseRecorder.Code)
+	}
+
+	if fakeMACManager.addedMACAddress != "11:22:33:44:55:66" {
+		testingInstance.Errorf("expected the new MAC address to be allowed, received %q", fakeMACManager.addedMACAddress)
+	}
+
+	if fakeMACManager.removedMACAddress != "AA:BB:CC:DD:EE:FF" {
+		testingInstance.Errorf("expected the old MAC address to be revoked, received %q", fakeMACManager.removedMACAddress)
+	}
+}
+
+func TestUpdateStaticDHCPHostKeepsOldMACWhenStillUsed(testingInstance *testing.T) {
+	fakeDHCPManager := &fakeStaticDHCPManager{
+		hosts: []StaticDHCPHost{
+			{Name: "old-entry", MACAddress: "AA:BB:CC:DD:EE:FF", IPAddress: "192.168.1.10"},
+		},
+	}
+	fakeMACManager := &fakeMACWhitelistManager{}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: fakeMACManager,
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"11:22:33:44:55:66","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		testingInstance.Errorf("expected status 200, received %d", responseRecorder.Code)
+	}
+
+	if fakeMACManager.removedMACAddress != "" {
+		testingInstance.Errorf("expected the old MAC address to be kept because another host still uses it, received %q", fakeMACManager.removedMACAddress)
+	}
+}
+
+func TestUpdateStaticDHCPHostNotFound(testingInstance *testing.T) {
+	fakeDHCPManager := &fakeStaticDHCPManager{
+		updateError: StaticDHCPHostNotFoundError,
+	}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: &fakeMACWhitelistManager{},
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"AA:BB:CC:DD:EE:FF","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusNotFound {
+		testingInstance.Errorf("expected status 404, received %d", responseRecorder.Code)
+	}
+}
+
+func TestUpdateStaticDHCPHostConflict(testingInstance *testing.T) {
+	fakeDHCPManager := &fakeStaticDHCPManager{
+		updateError: StaticDHCPHostConflictError,
+	}
+	application := &Application{
+		StaticDHCPManager:   fakeDHCPManager,
+		MACWhitelistManager: &fakeMACWhitelistManager{},
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"11:22:33:44:55:66","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusConflict {
+		testingInstance.Errorf("expected status 409, received %d", responseRecorder.Code)
+	}
+}
+
+func TestUpdateStaticDHCPHostInvalidMACInBody(testingInstance *testing.T) {
+	application := &Application{
+		StaticDHCPManager:   &fakeStaticDHCPManager{},
+		MACWhitelistManager: &fakeMACWhitelistManager{},
+	}
+	httpHandler := newTestHTTPHandler(application, "")
+
+	requestBody := strings.NewReader(`{"name":"laptop","macAddress":"not-a-mac","ipAddress":"192.168.1.100"}`)
+	request := httptest.NewRequest("PUT", "/api/static-dhcp-hosts/AA:BB:CC:DD:EE:FF", requestBody)
+	responseRecorder := httptest.NewRecorder()
+	httpHandler.ServeHTTP(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusBadRequest {
+		testingInstance.Errorf("expected status 400, received %d", responseRecorder.Code)
 	}
 }

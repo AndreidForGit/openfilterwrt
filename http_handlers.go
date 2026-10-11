@@ -27,9 +27,9 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// CreatedStaticDHCPHostResponse is the payload returned after creating a static
-// DHCP reservation. Warning is filled in when the reservation was created but its
-// MAC address could not also be added to the wireless allow list.
+// CreatedStaticDHCPHostResponse is the payload returned after creating or updating
+// a static DHCP reservation. Warning is filled in when the reservation was saved but
+// its MAC address could not also be added to the wireless allow list.
 type CreatedStaticDHCPHostResponse struct {
 	Name       string `json:"name"`
 	MACAddress string `json:"macAddress"`
@@ -81,6 +81,11 @@ func serviceErrorStatusCode(serviceError error) int {
 	notFoundDetected = errors.Is(serviceError, MACWhitelistEntryNotFoundError)
 	if notFoundDetected {
 		return http.StatusNotFound
+	}
+
+	conflictDetected := errors.Is(serviceError, StaticDHCPHostConflictError)
+	if conflictDetected {
+		return http.StatusConflict
 	}
 
 	return http.StatusBadGateway
@@ -150,6 +155,110 @@ func (application *Application) handleCreateStaticDHCPHost(responseWriter http.R
 	}
 
 	writeJSONResponse(responseWriter, http.StatusCreated, createdHostResponse)
+}
+
+// handleUpdateStaticDHCPHost answers PUT /api/static-dhcp-hosts/{macAddress}. The
+// value in the URL is the MAC address as it is today; the JSON body carries the
+// desired new state, which may include a different MAC address.
+func (application *Application) handleUpdateStaticDHCPHost(responseWriter http.ResponseWriter, request *http.Request) {
+	currentMACAddress := request.PathValue("macAddress")
+
+	var requestedHost StaticDHCPHost
+	decodeError := json.NewDecoder(request.Body).Decode(&requestedHost)
+	if decodeError != nil {
+		writeErrorResponse(responseWriter, http.StatusBadRequest, "invalid JSON request body")
+		return
+	}
+
+	canonicalCurrentMACAddress, normalizeCurrentError := NormalizeMACAddress(currentMACAddress)
+	if normalizeCurrentError != nil {
+		statusCode := serviceErrorStatusCode(normalizeCurrentError)
+		writeErrorResponse(responseWriter, statusCode, normalizeCurrentError.Error())
+		return
+	}
+
+	canonicalUpdatedMACAddress, normalizeUpdatedError := NormalizeMACAddress(requestedHost.MACAddress)
+	if normalizeUpdatedError != nil {
+		statusCode := serviceErrorStatusCode(normalizeUpdatedError)
+		writeErrorResponse(responseWriter, statusCode, normalizeUpdatedError.Error())
+		return
+	}
+
+	updateError := application.StaticDHCPManager.UpdateStaticDHCPHost(canonicalCurrentMACAddress, requestedHost)
+	if updateError != nil {
+		statusCode := serviceErrorStatusCode(updateError)
+		writeErrorResponse(responseWriter, statusCode, updateError.Error())
+		return
+	}
+
+	updatedHostResponse := CreatedStaticDHCPHostResponse{
+		Name:       requestedHost.Name,
+		MACAddress: canonicalUpdatedMACAddress,
+		IPAddress:  requestedHost.IPAddress,
+	}
+
+	allowListWarning := application.synchronizeAllowListAfterUpdate(canonicalCurrentMACAddress, canonicalUpdatedMACAddress)
+	if allowListWarning != "" {
+		updatedHostResponse.Warning = allowListWarning
+	}
+
+	writeJSONResponse(responseWriter, http.StatusOK, updatedHostResponse)
+}
+
+// synchronizeAllowListAfterUpdate makes sure the new MAC address is allowed and, when
+// the MAC address changed, that the old one is removed if no other reservation still
+// uses it. It returns a warning message when something could not be synchronized.
+func (application *Application) synchronizeAllowListAfterUpdate(currentMACAddress string, updatedMACAddress string) string {
+	allowListError := application.MACWhitelistManager.AddMACWhitelistEntry(updatedMACAddress)
+	if allowListError != nil {
+		return "the reservation was updated but the new MAC address could not be added to the Wi-Fi allow list: " + allowListError.Error()
+	}
+
+	macAddressChanged := macAddressesEqual(currentMACAddress, updatedMACAddress) == false
+	if macAddressChanged == false {
+		return ""
+	}
+
+	otherHostUsesCurrentMACAddress, lookupError := application.anotherHostUsesMACAddress(updatedMACAddress, currentMACAddress)
+	if lookupError != nil {
+		return "the reservation was updated but the old MAC address could not be checked: " + lookupError.Error()
+	}
+
+	if otherHostUsesCurrentMACAddress {
+		return ""
+	}
+
+	removeError := application.MACWhitelistManager.RemoveMACWhitelistEntry(currentMACAddress)
+	if removeError != nil {
+		notFoundDetected := errors.Is(removeError, MACWhitelistEntryNotFoundError)
+		if notFoundDetected == false {
+			return "the reservation was updated but the old MAC address could not be removed from the Wi-Fi allow list: " + removeError.Error()
+		}
+	}
+
+	return ""
+}
+
+// anotherHostUsesMACAddress reports whether any reservation other than
+// excludedMACAddress still uses candidateMACAddress.
+func (application *Application) anotherHostUsesMACAddress(excludedMACAddress string, candidateMACAddress string) (bool, error) {
+	staticDHCPHosts, listError := application.StaticDHCPManager.ListStaticDHCPHosts()
+	if listError != nil {
+		return false, listError
+	}
+
+	for hostIndex := 0; hostIndex < len(staticDHCPHosts); hostIndex++ {
+		currentHost := staticDHCPHosts[hostIndex]
+		if macAddressesEqual(currentHost.MACAddress, excludedMACAddress) {
+			continue
+		}
+
+		if macAddressesEqual(currentHost.MACAddress, candidateMACAddress) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // handleDeleteStaticDHCPHost answers DELETE /api/static-dhcp-hosts/{macAddress}.

@@ -74,6 +74,24 @@ Deleting a reservation does not remove the MAC address from the allow list. That
 safer, because the device keeps working until an administrator removes it on
 purpose.
 
+## What happens when you edit a reservation
+
+Editing a reservation uses the same dialog as adding one: the MAC address field is
+filled in and the Wi-Fi allow list warning is shown.
+
+1. `app.js` sends `PUT /api/static-dhcp-hosts/<current MAC address>` with the new
+   values.
+2. `handleUpdateStaticDHCPHost` normalizes both MAC addresses and calls
+   `StaticDHCPService.UpdateStaticDHCPHost`.
+3. The service finds the section with the current MAC address. If the MAC address
+   changed it recreates the section (`uci delete` then `uci add`), because UCI has
+   no way to rename a section; otherwise it only writes the new `name` and `ip`.
+4. It validates the change and refuses a MAC address that another reservation
+   already uses (HTTP `409 Conflict`).
+5. Back in the handler, the allow list is synchronized: the new MAC address is
+   allowed and, if the MAC address changed, the old one is removed unless another
+   reservation still uses it.
+
 ## What happens when you click "Allow address"
 
 This is the most interesting flow, because it shows how one click travels all the

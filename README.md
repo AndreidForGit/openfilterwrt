@@ -120,6 +120,7 @@ docker run -v "$PWD/.env:/run/config/.env:ro" -e ENV_FILE_PATH=/run/config/.env 
 | `GET` | `/api/health` | Service health. |
 | `GET` | `/api/static-dhcp-hosts` | List static DHCP reservations. |
 | `POST` | `/api/static-dhcp-hosts` | Create a reservation (`name`, `macAddress`, `ipAddress`) and also allow its MAC address on Wi-Fi. |
+| `PUT` | `/api/static-dhcp-hosts/{macAddress}` | Update a reservation (`name`, `macAddress`, `ipAddress`). The value in the URL is the current MAC address; the body may change it. |
 | `DELETE` | `/api/static-dhcp-hosts/{macAddress}` | Delete a reservation by MAC address. The MAC address is not removed from the allow list. |
 | `GET` | `/api/mac-whitelist` | List allowed MAC addresses. |
 | `POST` | `/api/mac-whitelist` | Allow a MAC address (`macAddress`). |
@@ -128,6 +129,11 @@ docker run -v "$PWD/.env:/run/config/.env:ro" -e ENV_FILE_PATH=/run/config/.env 
 > Creating a reservation always adds its MAC address to the Wi-Fi allow list, because
 > the two features usually go together. When that second step fails, the reservation
 > is still created and the response contains a `warning` field explaining the problem.
+
+> Updating a reservation keeps the allow list in sync: the new MAC address is allowed
+> and, when the MAC address changed, the old one is removed unless another reservation
+> still uses it. A `409 Conflict` is returned when the new MAC address already belongs
+> to a different reservation.
 
 > Note: adding the first MAC address (directly or by creating a reservation)
 > switches the target wireless interface into allow (whitelist) mode, which blocks

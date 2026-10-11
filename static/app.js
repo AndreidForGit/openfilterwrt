@@ -15,6 +15,7 @@ const applicationState = {
   staticDhcpHosts: [],
   macWhitelistEntries: [],
   healthPollIdentifier: null,
+  editingMACAddress: null,
 };
 
 document.addEventListener("DOMContentLoaded", handleDocumentReady);
@@ -397,8 +398,15 @@ function createStaticDhcpCard(dhcpHost) {
   nameElement.textContent = dhcpHost.name;
   headerElement.appendChild(nameElement);
 
+  const actionsElement = document.createElement("div");
+  actionsElement.className = "flex items-center gap-1";
+
+  const editButton = createEditButton(dhcpHost.macAddress, handleEditStaticDhcpHostClick);
+  actionsElement.appendChild(editButton);
+
   const deleteButton = createDeleteButton(dhcpHost.macAddress, handleDeleteStaticDhcpHostClick);
-  headerElement.appendChild(deleteButton);
+  actionsElement.appendChild(deleteButton);
+  headerElement.appendChild(actionsElement);
   cardElement.appendChild(headerElement);
 
   const detailsElement = document.createElement("dl");
@@ -420,8 +428,13 @@ function createStaticDhcpTableRow(dhcpHost) {
 
   const actionCellElement = document.createElement("td");
   actionCellElement.className = "app-table-cell app-table-cell--right";
+
+  const editButton = createEditButton(dhcpHost.macAddress, handleEditStaticDhcpHostClick);
+  actionCellElement.appendChild(editButton);
+
   const deleteButton = createDeleteButton(dhcpHost.macAddress, handleDeleteStaticDhcpHostClick);
   actionCellElement.appendChild(deleteButton);
+
   rowElement.appendChild(actionCellElement);
 
   return rowElement;
@@ -435,6 +448,17 @@ function createDeleteButton(macAddress, clickHandler) {
   deleteButton.dataset.macAddress = macAddress;
   deleteButton.addEventListener("click", clickHandler);
   return deleteButton;
+}
+
+// createEditButton builds an "Edit" button carrying the MAC address it belongs to.
+function createEditButton(macAddress, clickHandler) {
+  const editButton = document.createElement("button");
+  editButton.type = "button";
+  editButton.className = "app-button app-button--ghost";
+  editButton.textContent = "Edit";
+  editButton.dataset.macAddress = macAddress;
+  editButton.addEventListener("click", clickHandler);
+  return editButton;
 }
 
 function handleDeleteStaticDhcpHostClick(clickEvent) {
@@ -459,14 +483,86 @@ async function confirmAndDeleteStaticDhcpHost(macAddress) {
 }
 
 function openStaticDhcpForm() {
+  applicationState.editingMACAddress = null;
   resetStaticDhcpForm();
+
+  const modalTitleElement = document.getElementById("dhcp-modal-title");
+  modalTitleElement.textContent = "Add reservation";
+
+  const submitButtonElement = document.getElementById("dhcp-submit-button");
+  submitButtonElement.textContent = "Save reservation";
+
+  const macChangeNoteElement = document.getElementById("dhcp-mac-change-note");
+  macChangeNoteElement.classList.add("hidden");
+
   const modalElement = document.getElementById("dhcp-modal");
   modalElement.classList.remove("hidden");
   const nameInput = document.getElementById("dhcp-name-input");
   nameInput.focus();
 }
 
+// openStaticDhcpEditForm fills the same modal with an existing reservation. The MAC
+// address is the key that connects the reservation with the Wi-Fi allow list, so it
+// can be edited but the user is warned about the side effect.
+function openStaticDhcpEditForm(dhcpHost) {
+  applicationState.editingMACAddress = dhcpHost.macAddress;
+
+  const formElement = document.getElementById("dhcp-form");
+  formElement.reset();
+
+  const nameInput = document.getElementById("dhcp-name-input");
+  const macInput = document.getElementById("dhcp-mac-input");
+  const ipInput = document.getElementById("dhcp-ip-input");
+  const errorElement = document.getElementById("dhcp-form-error");
+  hideFormError(errorElement);
+
+  nameInput.value = dhcpHost.name;
+  macInput.value = dhcpHost.macAddress;
+  ipInput.value = dhcpHost.ipAddress;
+
+  const modalTitleElement = document.getElementById("dhcp-modal-title");
+  modalTitleElement.textContent = "Edit reservation";
+
+  const submitButtonElement = document.getElementById("dhcp-submit-button");
+  submitButtonElement.textContent = "Save changes";
+
+  const macChangeNoteElement = document.getElementById("dhcp-mac-change-note");
+  macChangeNoteElement.classList.remove("hidden");
+
+  const modalElement = document.getElementById("dhcp-modal");
+  modalElement.classList.remove("hidden");
+  nameInput.focus();
+}
+
+function handleEditStaticDhcpHostClick(clickEvent) {
+  const clickedButton = clickEvent.currentTarget;
+  const macAddress = clickedButton.dataset.macAddress;
+
+  const hostCount = applicationState.staticDhcpHosts.length;
+  for (let hostIndex = 0; hostIndex < hostCount; hostIndex++) {
+    const currentHost = applicationState.staticDhcpHosts[hostIndex];
+    if (macAddressesMatch(currentHost.macAddress, macAddress)) {
+      openStaticDhcpEditForm(currentHost);
+      return;
+    }
+  }
+}
+
+// macAddressesMatch compares two MAC addresses ignoring case and separators.
+function macAddressesMatch(firstMACAddress, secondMACAddress) {
+  const normalizedFirstAddress = normalizeMACAddress(firstMACAddress);
+  const normalizedSecondAddress = normalizeMACAddress(secondMACAddress);
+  if (normalizedFirstAddress === "") {
+    return false;
+  }
+  if (normalizedSecondAddress === "") {
+    return false;
+  }
+  return normalizedFirstAddress === normalizedSecondAddress;
+}
+
 function closeStaticDhcpForm() {
+  applicationState.editingMACAddress = null;
   const modalElement = document.getElementById("dhcp-modal");
   modalElement.classList.add("hidden");
 }
@@ -503,15 +599,30 @@ async function handleStaticDhcpFormSubmit(formSubmitEvent) {
     ipAddress: ipAddress,
   };
 
+  const editingMACAddress = applicationState.editingMACAddress;
+  const isEditing = editingMACAddress !== null;
+
+  let requestPath = "/api/static-dhcp-hosts";
+  let httpMethod = "POST";
+  if (isEditing) {
+    requestPath = "/api/static-dhcp-hosts/" + editingMACAddress;
+    httpMethod = "PUT";
+  }
+
   try {
-    const createdHostResponse = await performApiRequest("POST", "/api/static-dhcp-hosts", requestBody);
+    const savedHostResponse = await performApiRequest(httpMethod, requestPath, requestBody);
     closeStaticDhcpForm();
     await refreshStaticDhcpHosts();
     await refreshMacWhitelistEntries();
 
-    const warningMessage = readResponseWarning(createdHostResponse);
+    const warningMessage = readResponseWarning(savedHostResponse);
     if (warningMessage !== "") {
       showToast(warningMessage, "warning");
+      return;
+    }
+
+    if (isEditing) {
+      showToast("Reservation updated.", "success");
       return;
     }
 

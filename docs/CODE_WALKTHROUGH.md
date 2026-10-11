@@ -66,6 +66,9 @@ through the shell on the router.
 - `ListStaticDHCPHosts` reads `/etc/config/dhcp` and returns the `host` sections.
 - `CreateStaticDHCPHost` validates the input, refuses a duplicate MAC address, then
   runs `uci add dhcp host` and sets the `name`, `mac` and `ip` options.
+- `UpdateStaticDHCPHost` renames/re-addresses an existing reservation. When the MAC
+  address changes it deletes and recreates the section, because a UCI section cannot
+  be renamed, and it refuses a MAC address already used by another reservation.
 - `DeleteStaticDHCPHost` finds the section with that MAC address and deletes it.
 
 Both create and delete end with `uci commit dhcp` and a restart of dnsmasq. The

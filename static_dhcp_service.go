@@ -30,6 +30,10 @@ const (
 // StaticDHCPHostNotFoundError is returned when a requested reservation is absent.
 var StaticDHCPHostNotFoundError = errors.New("static DHCP host was not found")
 
+// StaticDHCPHostConflictError is returned when a change would create a second
+// reservation for a MAC address that already has one.
+var StaticDHCPHostConflictError = errors.New("a static DHCP host already uses that MAC address")
+
 // StaticDHCPHost represents a static DHCP reservation.
 type StaticDHCPHost struct {
 	Name       string `json:"name"`
@@ -41,6 +45,7 @@ type StaticDHCPHost struct {
 type StaticDHCPManager interface {
 	ListStaticDHCPHosts() ([]StaticDHCPHost, error)
 	CreateStaticDHCPHost(newHost StaticDHCPHost) error
+	UpdateStaticDHCPHost(currentMACAddress string, updatedHost StaticDHCPHost) error
 	DeleteStaticDHCPHost(macAddress string) error
 }
 
@@ -140,6 +145,117 @@ func (service *StaticDHCPService) CreateStaticDHCPHost(newHost StaticDHCPHost) e
 	restartError := service.uciClient.RestartService(service.dnsMasqServiceName)
 	if restartError != nil {
 		return restartError
+	}
+
+	return nil
+}
+
+// UpdateStaticDHCPHost changes an existing reservation. currentMACAddress is the
+// value that identifies the reservation today and updatedHost is the desired new
+// state. When the MAC address changes the section is recreated, because UCI has no
+// way to rename a section.
+func (service *StaticDHCPService) UpdateStaticDHCPHost(currentMACAddress string, updatedHost StaticDHCPHost) error {
+	validationError := validateStaticDHCPHost(updatedHost)
+	if validationError != nil {
+		return validationError
+	}
+
+	canonicalCurrentMACAddress, normalizeCurrentError := NormalizeMACAddress(currentMACAddress)
+	if normalizeCurrentError != nil {
+		return normalizeCurrentError
+	}
+
+	canonicalUpdatedMACAddress, normalizeUpdatedError := NormalizeMACAddress(updatedHost.MACAddress)
+	if normalizeUpdatedError != nil {
+		return normalizeUpdatedError
+	}
+	updatedHost.MACAddress = canonicalUpdatedMACAddress
+
+	service.mutationLock.Lock()
+	defer service.mutationLock.Unlock()
+
+	hostEntries, listError := service.listStaticDHCPHostEntries()
+	if listError != nil {
+		return listError
+	}
+
+	matchedSectionIdentifier := ""
+	for entryIndex := 0; entryIndex < len(hostEntries); entryIndex++ {
+		currentEntry := hostEntries[entryIndex]
+		if macAddressesEqual(currentEntry.Host.MACAddress, canonicalCurrentMACAddress) {
+			matchedSectionIdentifier = currentEntry.SectionIdentifier
+			break
+		}
+	}
+
+	if matchedSectionIdentifier == "" {
+		return StaticDHCPHostNotFoundError
+	}
+
+	for entryIndex := 0; entryIndex < len(hostEntries); entryIndex++ {
+		currentEntry := hostEntries[entryIndex]
+		if currentEntry.SectionIdentifier == matchedSectionIdentifier {
+			continue
+		}
+
+		macAddressMatches := macAddressesEqual(currentEntry.Host.MACAddress, canonicalUpdatedMACAddress)
+		if macAddressMatches {
+			return StaticDHCPHostConflictError
+		}
+	}
+
+	macAddressChanged := macAddressesEqual(canonicalCurrentMACAddress, canonicalUpdatedMACAddress) == false
+
+	if macAddressChanged {
+		deleteSectionError := service.uciClient.DeleteSection(dhcpConfigurationName, matchedSectionIdentifier)
+		if deleteSectionError != nil {
+			return deleteSectionError
+		}
+
+		recreatedSectionIdentifier, addSectionError := service.uciClient.AddSection(dhcpConfigurationName, dhcpHostSectionType)
+		if addSectionError != nil {
+			return addSectionError
+		}
+
+		setOptionsError := service.setHostOptions(recreatedSectionIdentifier, updatedHost)
+		if setOptionsError != nil {
+			return setOptionsError
+		}
+	} else {
+		setOptionsError := service.setHostOptions(matchedSectionIdentifier, updatedHost)
+		if setOptionsError != nil {
+			return setOptionsError
+		}
+	}
+
+	commitError := service.uciClient.Commit(dhcpConfigurationName)
+	if commitError != nil {
+		return commitError
+	}
+
+	restartError := service.uciClient.RestartService(service.dnsMasqServiceName)
+	if restartError != nil {
+		return restartError
+	}
+
+	return nil
+}
+
+// setHostOptions writes the name, MAC address and IP address of a host section.
+func (service *StaticDHCPService) setHostOptions(sectionIdentifier string, host StaticDHCPHost) error {
+	setNameError := service.uciClient.SetOption(dhcpConfigurationName, sectionIdentifier, dhcpHostNameOptionName, host.Name)
+	if setNameError != nil {
+		return setNameError
+	}
+
+	setMACError := service.uciClient.SetOption(dhcpConfigurationName, sectionIdentifier, dhcpHostMACOptionName, host.MACAddress)
+	if setMACError != nil {
+		return setMACError
+	}
+
+	setIPError := service.uciClient.SetOption(dhcpConfigurationName, sectionIdentifier, dhcpHostIPOptionName, host.IPAddress)
+	if setIPError != nil {
+		return setIPError
 	}
 
 	return nil

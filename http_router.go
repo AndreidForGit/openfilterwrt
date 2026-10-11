@@ -33,6 +33,7 @@ func NewHTTPHandler(application *Application, staticDirectory string, bearerToke
 	serveMux.HandleFunc("GET /api/health", application.handleHealthRequest)
 	serveMux.HandleFunc("GET /api/static-dhcp-hosts", application.handleListStaticDHCPHosts)
 	serveMux.HandleFunc("POST /api/static-dhcp-hosts", application.handleCreateStaticDHCPHost)
+	serveMux.HandleFunc("PUT /api/static-dhcp-hosts/{macAddress}", application.handleUpdateStaticDHCPHost)
 	serveMux.HandleFunc("DELETE /api/static-dhcp-hosts/{macAddress}", application.handleDeleteStaticDHCPHost)
 	serveMux.HandleFunc("GET /api/mac-whitelist", application.handleListMACWhitelistEntries)
 	serveMux.HandleFunc("POST /api/mac-whitelist", application.handleAddMACWhitelistEntry)
