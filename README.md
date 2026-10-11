@@ -61,7 +61,7 @@ baked into the image.
 | Variable | Required | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `ENV_FILE_PATH` | No | `.env` | Optional path to a `.env` file whose values are loaded at start up. |
-| `LISTEN_ADDRESS` | No | `:8080` | Address the HTTP server binds to. |
+| `LISTEN_ADDRESS` | No | `:8081` | Address the HTTP server binds to. |
 | `STATIC_DIRECTORY` | No | `/app/static` | Directory that contains the PWA. |
 | `API_BEARER_TOKEN` | No | *(empty)* | When set, `/api/*` requires `Authorization: Bearer <token>`. |
 | `ROUTER_ADDRESS` | **Yes** | - | Router SSH `host` or `host:port` (port 22 assumed). |
@@ -175,7 +175,7 @@ docker build -t openwrt-controller:local .
 ### Run the container
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 8081:8081 \
   -e ROUTER_ADDRESS=192.168.1.1 \
   -e ROUTER_USERNAME=root \
   -e ROUTER_PASSWORD=your-password \
@@ -183,7 +183,7 @@ docker run --rm -p 8080:8080 \
   openwrt-controller:local
 ```
 
-Then open `http://localhost:8080/`.
+Then open `http://localhost:8081/`.
 
 ### Docker Compose (alternative)
 

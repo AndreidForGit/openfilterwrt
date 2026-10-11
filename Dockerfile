@@ -32,10 +32,10 @@ WORKDIR /app
 COPY --from=builder /output/openwrt-controller /usr/local/bin/openwrt-controller
 COPY --from=builder /source/static /app/static
 
-ENV LISTEN_ADDRESS=":8080"
+ENV LISTEN_ADDRESS=":8081"
 ENV STATIC_DIRECTORY="/app/static"
 
-EXPOSE 8080
+EXPOSE 8081
 
 ENTRYPOINT ["/usr/local/bin/openwrt-controller"]
 

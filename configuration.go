@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	defaultListenAddress       = ":8080"
+	defaultListenAddress       = ":8081"
 	defaultStaticDirectory     = "/app/static"
 	defaultRouterSSHPort       = "22"
 	defaultDNSMasqServiceName  = "dnsmasq"
