@@ -1,3 +1,8 @@
+// Tests for the HTTP handlers.
+//
+// Fake managers replace the real services, so these tests focus on routing, HTTP
+// status codes and JSON bodies without touching a router.
+
 package main
 
 import (

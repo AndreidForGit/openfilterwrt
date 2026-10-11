@@ -1,3 +1,13 @@
+// HTTP handlers: the JSON API and its responses.
+//
+// A "handler" is a function that receives an HTTP request and writes a response.
+// This file contains one handler per API route, plus small helpers that encode
+// JSON and that translate service errors into HTTP status codes.
+//
+// Python equivalent: this is close to the functions you write with Flask or
+// FastAPI, one per route. Here they are methods of the Application struct and
+// there is no framework; the standard library does the work.
+
 package main
 
 import (
@@ -23,6 +33,9 @@ type Application struct {
 	MACWhitelistManager MACWhitelistManager
 }
 
+// writeJSONResponse writes a JSON body plus the HTTP status code. The value is
+// encoded with encoding/json, which is the standard library equivalent of
+// json.dumps in Python.
 func writeJSONResponse(responseWriter http.ResponseWriter, statusCode int, responsePayload interface{}) {
 	responseWriter.Header().Set("Content-Type", "application/json")
 	responseWriter.WriteHeader(statusCode)
@@ -34,11 +47,15 @@ func writeJSONResponse(responseWriter http.ResponseWriter, statusCode int, respo
 	}
 }
 
+// writeErrorResponse returns a small JSON object of the form {"error": "..."}.
 func writeErrorResponse(responseWriter http.ResponseWriter, statusCode int, errorMessage string) {
 	errorPayload := ErrorResponse{Error: errorMessage}
 	writeJSONResponse(responseWriter, statusCode, errorPayload)
 }
 
+// serviceErrorStatusCode chooses the HTTP status code for a service error:
+// 400 for invalid input, 404 when something was not found, and 502 when the
+// router could not be reached or refused to apply the change.
 func serviceErrorStatusCode(serviceError error) int {
 	var validationError *ValidationError
 	validationErrorDetected := errors.As(serviceError, &validationError)
@@ -59,11 +76,14 @@ func serviceErrorStatusCode(serviceError error) int {
 	return http.StatusBadGateway
 }
 
+// handleHealthRequest answers GET /api/health with {"status":"ok"}. The frontend
+// uses it to show whether the API is reachable.
 func (application *Application) handleHealthRequest(responseWriter http.ResponseWriter, request *http.Request) {
 	healthResponse := HealthResponse{Status: "ok"}
 	writeJSONResponse(responseWriter, http.StatusOK, healthResponse)
 }
 
+// handleListStaticDHCPHosts answers GET /api/static-dhcp-hosts with a JSON array.
 func (application *Application) handleListStaticDHCPHosts(responseWriter http.ResponseWriter, request *http.Request) {
 	staticDHCPHosts, serviceError := application.StaticDHCPManager.ListStaticDHCPHosts()
 	if serviceError != nil {
@@ -79,6 +99,9 @@ func (application *Application) handleListStaticDHCPHosts(responseWriter http.Re
 	writeJSONResponse(responseWriter, http.StatusOK, staticDHCPHosts)
 }
 
+// handleCreateStaticDHCPHost answers POST /api/static-dhcp-hosts. It decodes the
+// JSON body into a StaticDHCPHost and returns HTTP 201 when the reservation was
+// created.
 func (application *Application) handleCreateStaticDHCPHost(responseWriter http.ResponseWriter, request *http.Request) {
 	var requestedHost StaticDHCPHost
 	decodeError := json.NewDecoder(request.Body).Decode(&requestedHost)
@@ -97,6 +120,8 @@ func (application *Application) handleCreateStaticDHCPHost(responseWriter http.R
 	writeJSONResponse(responseWriter, http.StatusCreated, requestedHost)
 }
 
+// handleDeleteStaticDHCPHost answers DELETE /api/static-dhcp-hosts/{macAddress}.
+// request.PathValue reads the part of the URL inside the curly braces.
 func (application *Application) handleDeleteStaticDHCPHost(responseWriter http.ResponseWriter, request *http.Request) {
 	macAddress := request.PathValue("macAddress")
 
@@ -110,6 +135,7 @@ func (application *Application) handleDeleteStaticDHCPHost(responseWriter http.R
 	responseWriter.WriteHeader(http.StatusNoContent)
 }
 
+// handleListMACWhitelistEntries answers GET /api/mac-whitelist with a JSON array.
 func (application *Application) handleListMACWhitelistEntries(responseWriter http.ResponseWriter, request *http.Request) {
 	macWhitelistEntries, serviceError := application.MACWhitelistManager.ListMACWhitelistEntries()
 	if serviceError != nil {
@@ -125,6 +151,7 @@ func (application *Application) handleListMACWhitelistEntries(responseWriter htt
 	writeJSONResponse(responseWriter, http.StatusOK, macWhitelistEntries)
 }
 
+// handleAddMACWhitelistEntry answers POST /api/mac-whitelist.
 func (application *Application) handleAddMACWhitelistEntry(responseWriter http.ResponseWriter, request *http.Request) {
 	var requestedEntry MACWhitelistEntry
 	decodeError := json.NewDecoder(request.Body).Decode(&requestedEntry)
@@ -143,6 +170,7 @@ func (application *Application) handleAddMACWhitelistEntry(responseWriter http.R
 	writeJSONResponse(responseWriter, http.StatusCreated, requestedEntry)
 }
 
+// handleRemoveMACWhitelistEntry answers DELETE /api/mac-whitelist/{macAddress}.
 func (application *Application) handleRemoveMACWhitelistEntry(responseWriter http.ResponseWriter, request *http.Request) {
 	macAddress := request.PathValue("macAddress")
 

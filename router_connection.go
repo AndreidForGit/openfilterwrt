@@ -1,3 +1,18 @@
+// SSH connection to the OpenWrt router.
+//
+// The router runs a normal SSH server. This file opens a single SSH connection
+// and reuses it to run shell commands such as "uci show wireless". The program
+// never calls the system "ssh" binary; everything is done in process with the
+// golang.org/x/crypto/ssh package.
+//
+// CommandExecutor is an interface: any type that has an ExecuteCommand method can
+// be used in its place. That is what makes the rest of the code easy to test,
+// because the tests provide a fake implementation instead of a real router.
+//
+// Python equivalent: an interface is similar to duck typing; sync.Mutex is like
+// threading.Lock; "defer" is like a finally block that always runs when the
+// function returns.
+
 package main
 
 import (
@@ -59,6 +74,9 @@ func (routerConnection *RouterConnection) ExecuteCommand(command string) (Comman
 	return runCommandInSession(retriedSession, command)
 }
 
+// runCommandInSession runs the command in an open SSH session and collects its
+// standard output, standard error and exit status. The session is closed when the
+// function returns thanks to "defer".
 func runCommandInSession(session *ssh.Session, command string) (CommandResult, error) {
 	defer session.Close()
 
@@ -105,6 +123,9 @@ func (routerConnection *RouterConnection) createSession() (*ssh.Session, error) 
 	return session, nil
 }
 
+// ensureConnection returns the cached SSH client, opening a new connection the
+// first time it is called. The mutex makes this safe when several HTTP requests
+// arrive at the same time (the same role as threading.Lock in Python).
 func (routerConnection *RouterConnection) ensureConnection() (*ssh.Client, error) {
 	routerConnection.connectionLock.Lock()
 	defer routerConnection.connectionLock.Unlock()
@@ -139,6 +160,8 @@ func (routerConnection *RouterConnection) ensureConnection() (*ssh.Client, error
 	return sshClient, nil
 }
 
+// invalidateConnection closes and forgets the cached SSH client so that the next
+// command opens a fresh connection.
 func (routerConnection *RouterConnection) invalidateConnection() {
 	routerConnection.connectionLock.Lock()
 	defer routerConnection.connectionLock.Unlock()
@@ -149,6 +172,9 @@ func (routerConnection *RouterConnection) invalidateConnection() {
 	}
 }
 
+// buildAuthenticationMethods collects the supported ways of proving who we are
+// (a password, a private key, or both). It returns an error when neither is
+// configured, because the connection could never succeed.
 func buildAuthenticationMethods(configuration ServerConfiguration) ([]ssh.AuthMethod, error) {
 	authenticationMethods := make([]ssh.AuthMethod, 0)
 
@@ -186,6 +212,8 @@ func buildAuthenticationMethods(configuration ServerConfiguration) ([]ssh.AuthMe
 	return authenticationMethods, nil
 }
 
+// parsePrivateKeySigner reads an SSH private key, optionally protected by a
+// passphrase, and returns the value used to sign the authentication request.
 func parsePrivateKeySigner(privateKeyBytes []byte, privateKeyPassphrase string) (ssh.Signer, error) {
 	if privateKeyPassphrase != "" {
 		privateKeySigner, parseError := ssh.ParsePrivateKeyWithPassphrase(privateKeyBytes, []byte(privateKeyPassphrase))
@@ -202,6 +230,9 @@ func parsePrivateKeySigner(privateKeyBytes []byte, privateKeyPassphrase string) 
 	return privateKeySigner, nil
 }
 
+// buildHostKeyCallback decides how the router identity is verified. When a
+// fingerprint is configured the connection fails unless it matches; otherwise the
+// program accepts any key and relies on the startup warning to inform the user.
 func buildHostKeyCallback(configuration ServerConfiguration) (ssh.HostKeyCallback, error) {
 	if configuration.RouterHostKeyFingerprint == "" {
 		insecureCallback := ssh.InsecureIgnoreHostKey()

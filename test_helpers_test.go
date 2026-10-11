@@ -1,3 +1,12 @@
+// Shared test helpers.
+//
+// fakeCommandExecutor pretends to be a CommandExecutor: instead of running
+// commands on a router, it returns canned answers. The tests inject it into the
+// services so they can check which commands would have been sent, without needing
+// a real router.
+//
+// Python equivalent: this is a mock/fake object, like unittest.mock.
+
 package main
 
 type fakeCommandExecutor struct {

@@ -1,3 +1,8 @@
+// Tests for the static DHCP service.
+//
+// They use the fake executor defined in test_helpers_test.go and check the exact
+// uci commands that would be sent to the router.
+
 package main
 
 import (

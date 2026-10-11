@@ -1,3 +1,12 @@
+// Input validation helpers.
+//
+// Before the service touches the router, it checks that MAC and IP addresses are
+// well formed. Invalid input is reported with a ValidationError, which the HTTP
+// layer turns into an HTTP 400 (Bad Request) response.
+//
+// Python equivalent: ValidationError is a custom exception, and the validation
+// functions "raise" (return) it when a value is wrong.
+
 package main
 
 import (

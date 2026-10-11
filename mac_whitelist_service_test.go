@@ -1,3 +1,8 @@
+// Tests for the wireless MAC address allow list service.
+//
+// The helper sectionContainsMACAddress (in mac_whitelist_service.go) is what stops
+// the same MAC address from being added twice, and these tests check that.
+
 package main
 
 import (
@@ -109,6 +114,72 @@ func TestMACWhitelistServiceAddsCompactMAC(testingInstance *testing.T) {
 	}
 
 	expectedCommand := "uci add_list wireless.default_radio0.maclist='99:88:77:66:55:44'"
+	if fakeExecutor.containsCommand(expectedCommand) == false {
+		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedCommand, fakeExecutor.executedCommands)
+	}
+}
+
+func TestMACWhitelistServiceSkipsDuplicateMAC(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show wireless"] = CommandResult{
+		StandardOutput: sampleUCIWirelessOutput,
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	macWhitelistService := NewMACWhitelistService(uciClient, nil)
+
+	addError := macWhitelistService.AddMACWhitelistEntry("AA:BB:CC:DD:EE:FF")
+	if addError != nil {
+		testingInstance.Fatalf("unexpected add error: %v", addError)
+	}
+
+	duplicateCommand := "uci add_list wireless.default_radio0.maclist='AA:BB:CC:DD:EE:FF'"
+	if fakeExecutor.containsCommand(duplicateCommand) {
+		testingInstance.Errorf("expected the duplicate MAC address not to be added again, executed: %v", fakeExecutor.executedCommands)
+	}
+
+	if fakeExecutor.containsCommand("uci commit wireless") == false {
+		testingInstance.Errorf("expected the wireless configuration to be committed, executed: %v", fakeExecutor.executedCommands)
+	}
+}
+
+func TestMACWhitelistServiceListsRealWorldOutput(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show wireless"] = CommandResult{
+		StandardOutput: sampleUCIMultipleMACListOutput,
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	macWhitelistService := NewMACWhitelistService(uciClient, nil)
+
+	whitelistEntries, listError := macWhitelistService.ListMACWhitelistEntries()
+	if listError != nil {
+		testingInstance.Fatalf("unexpected list error: %v", listError)
+	}
+
+	if len(whitelistEntries) != 6 {
+		testingInstance.Fatalf("expected 6 whitelist entries, received %d: %v", len(whitelistEntries), whitelistEntries)
+	}
+}
+
+func TestMACWhitelistServiceRemovesFromRealWorldOutput(testingInstance *testing.T) {
+	fakeExecutor := newFakeCommandExecutor()
+	fakeExecutor.commandResults["uci show wireless"] = CommandResult{
+		StandardOutput: sampleUCIMultipleMACListOutput,
+		ExitStatus:     0,
+	}
+
+	uciClient := NewUCIClient(fakeExecutor)
+	macWhitelistService := NewMACWhitelistService(uciClient, nil)
+
+	removeError := macWhitelistService.RemoveMACWhitelistEntry("AA:BB:CC:DD:EE:02")
+	if removeError != nil {
+		testingInstance.Fatalf("unexpected remove error: %v", removeError)
+	}
+
+	expectedCommand := "uci del_list wireless.default_radio0.maclist='AA:BB:CC:DD:EE:02'"
 	if fakeExecutor.containsCommand(expectedCommand) == false {
 		testingInstance.Errorf("expected command %q to be executed, executed: %v", expectedCommand, fakeExecutor.executedCommands)
 	}

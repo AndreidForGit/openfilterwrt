@@ -1,3 +1,15 @@
+// Business logic for static DHCP reservations.
+//
+// dnsmasq is the DHCP and DNS server used by OpenWrt. It can always give the same
+// IP address to a device identified by its MAC address. Those "static leases" are
+// stored as "config host" sections inside /etc/config/dhcp.
+//
+// StaticDHCPService translates list/create/delete requests into uci commands and
+// restarts dnsmasq so the change takes effect.
+//
+// Python equivalent: this type is like a service class. sort.Interface is how Go
+// sorts values, and it plays the same role as defining __lt__ in Python.
+
 package main
 
 import (
@@ -180,6 +192,8 @@ func (service *StaticDHCPService) DeleteStaticDHCPHost(macAddress string) error 
 	return nil
 }
 
+// listStaticDHCPHostEntries reads /etc/config/dhcp and keeps only the sections of
+// type "host", turning each one into a StaticDHCPHost.
 func (service *StaticDHCPService) listStaticDHCPHostEntries() ([]staticDHCPHostEntry, error) {
 	sections, showError := service.uciClient.ShowConfiguration(dhcpConfigurationName)
 	if showError != nil {
@@ -207,6 +221,8 @@ func (service *StaticDHCPService) listStaticDHCPHostEntries() ([]staticDHCPHostE
 	return hostEntries, nil
 }
 
+// validateStaticDHCPHost checks the hostname, the MAC address and the IP address
+// before any command is sent to the router.
 func validateStaticDHCPHost(hostToValidate StaticDHCPHost) error {
 	macValidationError := ValidateMACAddress(hostToValidate.MACAddress)
 	if macValidationError != nil {
@@ -226,6 +242,9 @@ func validateStaticDHCPHost(hostToValidate StaticDHCPHost) error {
 	return nil
 }
 
+// staticDHCPHostCollection teaches Go how to sort a slice of hosts. Implementing
+// Len, Swap and Less is the Go way of saying "here is how you compare two items",
+// similar to defining __lt__ (and __eq__) in Python.
 type staticDHCPHostCollection []StaticDHCPHost
 
 func (collection staticDHCPHostCollection) Len() int {

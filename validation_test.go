@@ -1,3 +1,10 @@
+// Tests for the validation helpers.
+//
+// Python equivalent: functions whose name starts with Test are like Python
+// functions using "assert", but Go discovers and runs them automatically with
+// "go test". The parameter testingInstance is the test handle; most Go tutorials
+// simply call it "t".
+
 package main
 
 import "testing"

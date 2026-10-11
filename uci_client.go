@@ -1,9 +1,31 @@
+// Thin client for the "uci" command line tool.
+//
+// UCI (Unified Configuration Interface) stores the OpenWrt settings in text files
+// under /etc/config (for example /etc/config/dhcp and /etc/config/wireless). The
+// "uci" command reads and writes those files.
+//
+// This file does two things:
+//
+//  1. Runs uci commands (show, set, add_list, del_list, delete, commit) over SSH.
+//  2. Parses the text printed by "uci show" into an easy to use structure.
+//
+// A detail that matters a lot: "uci show" prints list options as several quoted
+// values on a single line, for example:
+//
+//	maclist='AA:BB:CC:DD:EE:FF' '11:22:33:44:55:66'
+//
+// parseUCIValueTokens is the helper that splits that line into separate values.
+//
+// Python equivalent: ParseUCIShowOutput is a small text parser, similar to
+// reading a file line by line with readlines() and splitting each line.
+
 package main
 
 import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // UCISection represents one configuration section parsed from `uci show` output.
@@ -26,6 +48,9 @@ func NewUCIClient(executor CommandExecutor) *UCIClient {
 	return uciClient
 }
 
+// runCommand executes a command and turns a non-zero exit status into a Go error,
+// so the caller only has to check the error. This is how the program learns that
+// a uci command failed on the router.
 func (uciClient *UCIClient) runCommand(command string) (CommandResult, error) {
 	commandResult, executionError := uciClient.executor.ExecuteCommand(command)
 	if executionError != nil {
@@ -164,10 +189,12 @@ func ParseUCIShowOutput(showOutput string) map[string]*UCISection {
 			existingSection = createdSection
 		}
 
-		decodedValue := unquoteUCIValue(valuePart)
+		decodedValues := parseUCIValueTokens(valuePart)
 
 		if optionName == "" {
-			existingSection.SectionType = decodedValue
+			if len(decodedValues) > 0 {
+				existingSection.SectionType = decodedValues[0]
+			}
 			continue
 		}
 
@@ -175,7 +202,9 @@ func ParseUCIShowOutput(showOutput string) map[string]*UCISection {
 		if optionExists == false {
 			existingOptionValues = make([]string, 0)
 		}
-		existingOptionValues = append(existingOptionValues, decodedValue)
+		for valueIndex := 0; valueIndex < len(decodedValues); valueIndex++ {
+			existingOptionValues = append(existingOptionValues, decodedValues[valueIndex])
+		}
 		existingSection.Options[optionName] = existingOptionValues
 	}
 
@@ -205,19 +234,76 @@ func BuildShellQuotedValue(rawValue string) string {
 	return quotedValue
 }
 
-func unquoteUCIValue(rawValue string) string {
-	trimmedValue := strings.TrimSpace(rawValue)
-	if len(trimmedValue) < 2 {
-		return trimmedValue
+// parseUCIValueTokens splits a `uci show` value into its individual tokens. UCI
+// prints list options as several space separated, single quoted values on a
+// single line, for example:
+//
+//	maclist='AA:BB:CC:DD:EE:FF' '11:22:33:44:55:66'
+//
+// Single value options are printed as one token. Sequences of the form '\”
+// represent a literal single quote inside a quoted value.
+func parseUCIValueTokens(rawValue string) []string {
+	valueTokens := make([]string, 0)
+	valueCharacters := []rune(strings.TrimSpace(rawValue))
+
+	var currentToken strings.Builder
+	tokenStarted := false
+	position := 0
+
+	for position < len(valueCharacters) {
+		currentCharacter := valueCharacters[position]
+
+		if currentCharacter == '\'' {
+			tokenStarted = true
+			position = position + 1
+			for position < len(valueCharacters) {
+				quotedCharacter := valueCharacters[position]
+				if quotedCharacter == '\'' {
+					escapedQuoteDetected := false
+					if position+3 < len(valueCharacters) {
+						if valueCharacters[position+1] == '\\' {
+							if valueCharacters[position+2] == '\'' {
+								if valueCharacters[position+3] == '\'' {
+									escapedQuoteDetected = true
+								}
+							}
+						}
+					}
+
+					if escapedQuoteDetected {
+						currentToken.WriteRune('\'')
+						position = position + 4
+						continue
+					}
+
+					position = position + 1
+					break
+				}
+
+				currentToken.WriteRune(quotedCharacter)
+				position = position + 1
+			}
+			continue
+		}
+
+		if unicode.IsSpace(currentCharacter) {
+			if tokenStarted {
+				valueTokens = append(valueTokens, currentToken.String())
+				currentToken.Reset()
+				tokenStarted = false
+			}
+			position = position + 1
+			continue
+		}
+
+		currentToken.WriteRune(currentCharacter)
+		tokenStarted = true
+		position = position + 1
 	}
 
-	firstCharacter := trimmedValue[0]
-	lastCharacter := trimmedValue[len(trimmedValue)-1]
-	if firstCharacter == '\'' && lastCharacter == '\'' {
-		innerValue := trimmedValue[1 : len(trimmedValue)-1]
-		unescapedValue := strings.ReplaceAll(innerValue, "'\\''", "'")
-		return unescapedValue
+	if tokenStarted {
+		valueTokens = append(valueTokens, currentToken.String())
 	}
 
-	return trimmedValue
+	return valueTokens
 }

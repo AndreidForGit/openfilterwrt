@@ -21,6 +21,22 @@ Mobile PWA (static, Tailwind via CDN)
 Go HTTP service (net/http)  --- SSH (golang.org/x/crypto/ssh) --->  OpenWrt router (uci)
 ```
 
+## Understanding the project (for beginners)
+
+New to Go or to OpenWrt? Read these documents, in this order:
+
+| Document | What it explains |
+| :--- | :--- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit together and what happens on every click. |
+| [docs/GO_FOR_PYTHON_DEVELOPERS.md](docs/GO_FOR_PYTHON_DEVELOPERS.md) | The Go concepts used here, explained for Python developers. |
+| [docs/CODE_WALKTHROUGH.md](docs/CODE_WALKTHROUGH.md) | A guided tour of every Go file, plus how to add a new endpoint. |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Plain language explanations of the networking words (UCI, SSH, DHCP, MAC, ...). |
+
+The Go source files are also commented with this same idea in mind: each file starts
+with a short explanation, and the trickier functions have notes that compare them to
+Python when that helps.
+
+
 ## Prerequisites
 
 Local development:
@@ -40,6 +56,7 @@ baked into the image.
 
 | Variable | Required | Default | Description |
 | :--- | :--- | :--- | :--- |
+| `ENV_FILE_PATH` | No | `.env` | Optional path to a `.env` file whose values are loaded at start up. |
 | `LISTEN_ADDRESS` | No | `:8080` | Address the HTTP server binds to. |
 | `STATIC_DIRECTORY` | No | `/app/static` | Directory that contains the PWA. |
 | `API_BEARER_TOKEN` | No | *(empty)* | When set, `/api/*` requires `Authorization: Bearer <token>`. |
@@ -55,6 +72,42 @@ baked into the image.
 | `ROUTER_WIRELESS_SECTIONS` | No | *(auto)* | Comma-separated `wifi-iface` sections to manage. When empty, every `wifi-iface` section in `ap` mode is used. |
 
 \* At least one authentication method (`ROUTER_PASSWORD` or a private key) is required.
+
+### Using a .env file (optional)
+
+Instead of passing every setting on the command line you can keep them in a `.env`
+file. Copy the example and edit it:
+
+```bash
+cp .env.example .env
+```
+
+The program loads `.env` automatically at start up; set `ENV_FILE_PATH` to use a
+different path. Real environment variables always win over the file, so a value
+exported in the shell is never overwritten. A missing file is simply ignored.
+
+```dotenv
+ROUTER_ADDRESS=192.168.1.1
+ROUTER_USERNAME=root
+ROUTER_PASSWORD=change-me
+```
+
+With Docker or Podman, either let the runtime inject the file:
+
+```bash
+docker run --env-file .env ...
+```
+
+or mount the file and let the program read it (useful when the same file must also
+work for a local `go run .`):
+
+```bash
+docker run -v "$PWD/.env:/run/config/.env:ro" -e ENV_FILE_PATH=/run/config/.env ...
+```
+
+> The `.env` file is ignored by Git and by the Docker build context (see
+> `.gitignore` and `.dockerignore`), so credentials never end up in the repository
+> or in the image.
 
 ### HTTP API
 

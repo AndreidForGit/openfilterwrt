@@ -1,3 +1,15 @@
+// Business logic for the wireless MAC address allow list.
+//
+// OpenWrt can filter Wi-Fi clients by MAC address. When the filter is set to
+// "allow", only the MAC addresses listed in "maclist" are allowed to connect.
+// That list lives in the "wifi-iface" sections of /etc/config/wireless.
+//
+// MACWhitelistService adds or removes MAC addresses and reloads the wireless
+// configuration so the change takes effect.
+//
+// Warning: switching to "allow" mode blocks every client that is not on the list,
+// so the first address added turns the network into a whitelist-only network.
+
 package main
 
 import (
@@ -117,6 +129,15 @@ func (service *MACWhitelistService) AddMACWhitelistEntry(macAddress string) erro
 			return setFilterModeError
 		}
 
+		section, sectionExists := sections[sectionIdentifier]
+		alreadyAllowed := false
+		if sectionExists {
+			alreadyAllowed = sectionContainsMACAddress(section, wirelessMACListOptionName, canonicalMACAddress)
+		}
+		if alreadyAllowed {
+			continue
+		}
+
 		addListValueError := service.uciClient.AddListValue(wirelessConfigurationName, sectionIdentifier, wirelessMACListOptionName, canonicalMACAddress)
 		if addListValueError != nil {
 			return addListValueError
@@ -198,6 +219,9 @@ func (service *MACWhitelistService) RemoveMACWhitelistEntry(macAddress string) e
 	return nil
 }
 
+// targetSectionIdentifiers decides which wifi-iface sections will be modified: the
+// ones listed in ROUTER_WIRELESS_SECTIONS, or every section of type "wifi-iface"
+// whose "mode" option is "ap" when that setting is empty.
 func (service *MACWhitelistService) targetSectionIdentifiers(sections map[string]*UCISection) []string {
 	configuredSectionIdentifiers := service.configuredSectionIdentifiers
 	if len(configuredSectionIdentifiers) > 0 {
@@ -226,6 +250,25 @@ func (service *MACWhitelistService) targetSectionIdentifiers(sections map[string
 	return targetSectionIdentifiers
 }
 
+// sectionContainsMACAddress reports whether an option already contains a given MAC
+// address. It is used to avoid adding the same address twice, and it compares the
+// addresses in a tolerant way (upper/lower case and separators do not matter).
+func sectionContainsMACAddress(section *UCISection, optionName string, macAddress string) bool {
+	optionValues, optionExists := section.Options[optionName]
+	if optionExists == false {
+		return false
+	}
+
+	for valueIndex := 0; valueIndex < len(optionValues); valueIndex++ {
+		if macAddressesEqual(optionValues[valueIndex], macAddress) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// macWhitelistEntryCollection teaches Go how to sort the allow list by MAC address.
 type macWhitelistEntryCollection []MACWhitelistEntry
 
 func (collection macWhitelistEntryCollection) Len() int {
